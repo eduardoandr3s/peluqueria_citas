@@ -10,6 +10,7 @@ import java.util.List;
 @RestController // Marca esta clase como un controlador REST, lo que permite manejar solicitudes HTTP y enviar respuestas en formato JSON o XML.
 @RequestMapping("/api/servicios") // Especifica la ruta base para todas las solicitudes que maneje este controlador. En este caso, todas las rutas comenzarán con "/api/servicios".
 public class ServicioController {
+
     @Autowired // Inyecta automáticamente una instancia de ServicioRepository en esta clase, lo que permite acceder a los métodos de la capa de persistencia sin necesidad de crear manualmente una instancia.
     private ServicioRepository servicioRepository;
 
