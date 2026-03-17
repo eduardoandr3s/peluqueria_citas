@@ -34,3 +34,7 @@ Content-Type: application/json
   },
   "fecha_hora": "2026-03-19T07:30:00"
 }
+
+### Obtener lista de usuarios
+
+GET http://localhost:8080/api/usuarios

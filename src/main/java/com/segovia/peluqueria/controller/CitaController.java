@@ -21,11 +21,6 @@ public class CitaController {
     @PostMapping
     public Cita agendarCita(@RequestBody Cita cita) {
 
-        // Si el estado pendiente no viene en el JSON se lo asignamos por defecto
-
-        if (cita.getEstado() == null) {
-            cita.setEstado("PENDIENTE");
-        }
         return citaService.agendarCita(cita);
 
     }

@@ -1,5 +1,7 @@
 package com.segovia.peluqueria.controller;
 
+import com.segovia.peluqueria.dto.UsuarioRequestDTO;
+import com.segovia.peluqueria.dto.UsuarioResponseDTO;
 import com.segovia.peluqueria.model.Usuario;
 import com.segovia.peluqueria.service.UsuarioService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,12 +16,12 @@ public class UsuarioController {
     private UsuarioService usuarioService;
 
     @GetMapping
-    public List<Usuario> listarUsuarios() {
+    public List<UsuarioResponseDTO> listarUsuarios() {
         return usuarioService.listarUsuarios();
     }
 
     @PostMapping
-    public Usuario crearUsuario(@RequestBody Usuario usuario) {
-        return usuarioService.crearUsuario(usuario);
+    public UsuarioResponseDTO crearUsuario(@RequestBody UsuarioRequestDTO requestDTO) {
+        return usuarioService.crearUsuario(requestDTO);
     }
 }
