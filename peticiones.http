@@ -3,10 +3,10 @@ POST http://localhost:8080/api/servicios
 Content-Type: application/json
 
 {
-  "nombre": "Corte de cabello mujer",
+  "nombre": "Corte de cabello niño",
   "descripcion": "Corte de cabello estándar, incluye lavado y peinado.",
-  "precio": 15.50,
-  "duracion": 45
+  "precio": 12.00,
+  "duracion": 30
 }
 
 ### Crear un usuario
@@ -14,9 +14,9 @@ POST http://localhost:8080/api/usuarios
 Content-Type: application/json
 
 {
-  "nombre": "Claudia Urrutia",
-  "email": "claudia.urrutia92@gmail.com",
-  "telefono": "+34689689689",
+  "nombre": "Eduardo Segovia",
+  "email": "edu92seg@gmail.com",
+  "telefono": "+34689689789",
   "password": "password123",
   "fecha_registro": "2026-03-17"
 }
