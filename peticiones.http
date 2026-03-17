@@ -3,10 +3,10 @@ POST http://localhost:8080/api/servicios
 Content-Type: application/json
 
 {
-  "nombre": "Corte de cabello niño",
-  "descripcion": "Corte de cabello estándar, incluye lavado y peinado.",
-  "precio": 12.00,
-  "duracion": 30
+  "nombre": "Peinado fallera simple",
+  "descripcion": "Peinado con partidura al medio y 2 tocados a los costados.",
+  "precio": 25.00,
+  "duracion": 20
 }
 
 ### Crear un usuario
@@ -14,9 +14,9 @@ POST http://localhost:8080/api/usuarios
 Content-Type: application/json
 
 {
-  "nombre": "Eduardo Segovia",
-  "email": "edu92seg@gmail.com",
-  "telefono": "+34689689789",
+  "nombre": "Montse Segovia",
+  "email": "segoviamontse2015@gmail.com",
+  "telefono": "+34689689123",
   "password": "password123",
   "fecha_registro": "2026-03-17"
 }
@@ -27,10 +27,10 @@ Content-Type: application/json
 
 {
   "usuario": {
-    "id_usuario": 1
+    "id_usuario": 3
   },
   "servicio": {
-    "id_servicio": 1
+    "id_servicio": 4
   },
-  "fecha_hora": "2026-03-20T10:30:00"
+  "fecha_hora": "2026-03-19T07:30:00"
 }
