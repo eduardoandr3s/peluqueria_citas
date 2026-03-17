@@ -1,9 +1,15 @@
 package com.segovia.peluqueria.model;
 
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
 @Entity
 public class Cita {
     @Id
@@ -26,47 +32,4 @@ public class Cita {
 
     @Column(length = 50)
     private String estado; // pendiente, confirmada, anulada
-
-    public Cita() {
-    }
-
-    public Integer getId_cita() {
-        return id_cita;
-    }
-
-    public void setId_cita(Integer id_cita) {
-        this.id_cita = id_cita;
-    }
-
-    public Usuario getUsuario() {
-        return usuario;
-    }
-
-    public void setUsuario(Usuario usuario) {
-        this.usuario = usuario;
-    }
-
-    public Servicio getServicio() {
-        return servicio;
-    }
-
-    public void setServicio(Servicio servicio) {
-        this.servicio = servicio;
-    }
-
-    public LocalDateTime getFecha_hora() {
-        return fecha_hora;
-    }
-
-    public void setFecha_hora(LocalDateTime fecha_hora) {
-        this.fecha_hora = fecha_hora;
-    }
-
-    public String getEstado() {
-        return estado;
-    }
-
-    public void setEstado(String estado) {
-        this.estado = estado;
-    }
 }
