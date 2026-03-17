@@ -11,6 +11,7 @@ El núcleo del proyecto está construido bajo estándares actuales de la industr
 * **PostgreSQL** (Base de datos relacional)
 * **Spring Data JPA / Hibernate** (ORM para el mapeo de la base de datos)
 * **Maven** (Gestor de dependencias y construcción)
+* **Lombok** (Optimización y reducción de código *boilerplate*)
 
 ## 🗄️ Modelo de Datos
 
@@ -61,7 +62,7 @@ La arquitectura de la información se basa en un esquema relacional limpio con t
 - [x] Creación de entidades ORM (`Servicio`, `Usuario`, `Cita`) con relaciones `@ManyToOne`.
 - [x] Controladores REST base (GET/POST para `/api/servicios` y `/api/usuarios`).
 - [x] Creación de archivo `peticiones.http` para pruebas locales integradas.
-- [ ] Desarrollo de `CitaController` para el agendamiento y gestión de citas.
+- [x] Desarrollo de `CitaController` para el agendamiento y gestión de citas.
 - [ ] Implementación de lógicas de negocio (validación de solapamiento de horas en citas).
 - [ ] Integración de Spring Security y JWT para el flujo de autenticación (Login/Registro).
 - [ ] Desarrollo del Frontend interactivo (Angular) consumiendo esta API.
