@@ -20,3 +20,17 @@ Content-Type: application/json
   "password": "password123",
   "fecha_registro": "2026-03-17"
 }
+
+### Agendar una Cita
+POST http://localhost:8080/api/citas
+Content-Type: application/json
+
+{
+  "usuario": {
+    "id_usuario": 1
+  },
+  "servicio": {
+    "id_servicio": 1
+  },
+  "fecha_hora": "2026-03-20T10:30:00"
+}
