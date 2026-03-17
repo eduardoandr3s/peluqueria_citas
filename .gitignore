@@ -54,6 +54,3 @@ build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 
-### VS Code ###
-.vscode/
->>>>>>> 6393b07ffbcf488acb7e65a5334998b17a91c1d4
