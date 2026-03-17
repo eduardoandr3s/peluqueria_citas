@@ -1,0 +1,22 @@
+### Crear un servicio de Corte de Pelo
+POST http://localhost:8080/api/servicios
+Content-Type: application/json
+
+{
+  "nombre": "Corte de cabello mujer",
+  "descripcion": "Corte de cabello estándar, incluye lavado y peinado.",
+  "precio": 15.50,
+  "duracion": 45
+}
+
+### Crear un usuario
+POST http://localhost:8080/api/usuarios
+Content-Type: application/json
+
+{
+  "nombre": "Claudia Urrutia",
+  "email": "claudia.urrutia92@gmail.com",
+  "telefono": "+34689689689",
+  "password": "password123",
+  "fecha_registro": "2026-03-17"
+}
