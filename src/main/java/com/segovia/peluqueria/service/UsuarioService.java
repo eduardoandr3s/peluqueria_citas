@@ -48,7 +48,7 @@ public class UsuarioService {
 
 
         // fecha_registro con LocalDate.now()
-        nuevoUsuario.setFecha_registro(LocalDate.now());
+        nuevoUsuario.setFechaRegistro(LocalDate.now());
 
         //2. Guardar la entidad en la base de datos
         Usuario usuarioGuardado = usuarioRepository.save(nuevoUsuario);
@@ -60,11 +60,11 @@ public class UsuarioService {
     // Método privado para mapear de Usuario a UsuarioResponseDTO
     private UsuarioResponseDTO mapearAResponseDTO(Usuario usuario) {
         UsuarioResponseDTO dto = new UsuarioResponseDTO();
-        dto.setId_usuario(usuario.getId_usuario());
+        dto.setIdUsuario(usuario.getIdUsuario());
         dto.setNombre(usuario.getNombre());
         dto.setEmail(usuario.getEmail());
         dto.setTelefono(usuario.getTelefono());
-        dto.setFecha_registro(usuario.getFecha_registro());
+        dto.setFechaRegistro(usuario.getFechaRegistro());
         return dto;
     }
 

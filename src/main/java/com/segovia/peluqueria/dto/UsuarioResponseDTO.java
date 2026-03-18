@@ -5,9 +5,9 @@ import lombok.Data;
 import java.time.LocalDate;
 @Data
 public class UsuarioResponseDTO {
-    private Integer id_usuario;
+    private Integer idUsuario;
     private String nombre;
     private String email;
     private String telefono;
-    private LocalDate fecha_registro;
+    private LocalDate fechaRegistro;
 }

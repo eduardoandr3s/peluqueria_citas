@@ -15,7 +15,8 @@ import java.math.BigDecimal;
 public class Servicio {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY) // Genera automáticamente el ID
-    private Integer id_servicio;
+    @Column(name = "id_servicio")
+    private Integer idServicio;
 
     @Column(nullable = false) // Especifica que este campo no puede ser nulo
     private String nombre;

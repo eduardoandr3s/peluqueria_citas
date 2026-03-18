@@ -15,7 +15,8 @@ import java.time.LocalDateTime;
 public class Cita {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Integer id_cita;
+    @Column(name = "id_cita")
+    private Integer idCita;
 
     //muchas citas pueden ser de un mismo usuario, pero una cita solo puede ser de un usuario
     @ManyToOne
@@ -28,8 +29,8 @@ public class Cita {
     private Servicio servicio;
 
     // fecha y hora de la cita
-    @Column(nullable = false)
-    private LocalDateTime fecha_hora;
+    @Column(name = "fecha_hora", nullable = false)
+    private LocalDateTime fechaHora;
 
     @Enumerated(EnumType.STRING)
     @Column(length = 50)

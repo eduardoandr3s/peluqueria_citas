@@ -15,7 +15,8 @@ import java.time.LocalDate;
 public class Usuario {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Integer id_usuario;
+    @Column(name = "id_usuario")
+    private Integer idUsuario;
 
     @Column(length = 50, nullable = false)
     private String nombre;
@@ -29,5 +30,6 @@ public class Usuario {
     @Column(length = 255, nullable = false)
     private String password;
 
-    private LocalDate fecha_registro;
+    @Column(name = "fecha_registro")
+    private LocalDate fechaRegistro;
 }
