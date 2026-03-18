@@ -20,8 +20,9 @@ El núcleo del proyecto está construido bajo estándares actuales de la industr
 * **Arquitectura Multicapa:** Separación clara entre Controladores (API), Servicios (Lógica de negocio) y Repositorios (Acceso a datos).
 * **Seguridad y Encriptación:** Uso de Spring Security y `BCryptPasswordEncoder` para encriptar las contraseñas de los usuarios en la base de datos de forma unidireccional.
 * **Patrón DTO (Data Transfer Object):** Implementado para la entidad `Usuario`, garantizando que información sensible no se exponga, y permitiendo actualizaciones parciales (Update DTO) sin exigir campos obligatorios.
-* **Manejo Global de Excepciones:** Uso de `@RestControllerAdvice` para capturar y estandarizar las respuestas de error (Ej: 404 para recursos no encontrados, 400 para errores de validación, 409 para conflictos de integridad en la base de datos).
-* **Validación de Datos:** Uso de anotaciones como `@NotBlank` y `@Email` para proteger la integridad de los datos antes de llegar a la base de datos.
+* **Validación de Conflictos de Horarios:** El sistema impide agendar citas que se solapen con otras ya existentes, calculando el rango de tiempo según la duración del servicio. Aplica tanto al crear como al actualizar citas, y excluye citas anuladas.
+* **Manejo Global de Excepciones:** Uso de `@RestControllerAdvice` para capturar y estandarizar las respuestas de error (Ej: 404 para recursos no encontrados, 400 para errores de validación, 409 para conflictos de horario o integridad en la base de datos).
+* **Validación de Datos:** Uso de anotaciones como `@NotBlank`, `@Email` y `@Size` para proteger la integridad de los datos antes de llegar a la base de datos.
 * **Tipado Estricto con Enums:** Blindaje del estado de las citas mediante enumeraciones (`PENDIENTE`, `CONFIRMADA`, `ANULADA`).
 * **Estándares Clean Code:** Refactorización de la API para utilizar convenciones `camelCase` en el modelo y DTOs, garantizando una serialización JSON limpia para el Frontend, manteniendo la compatibilidad `snake_case` en PostgreSQL.
 
@@ -78,7 +79,14 @@ La arquitectura de la información se basa en un esquema relacional limpio con t
 - [x] Encriptación de contraseñas (BCrypt) e implementación de Spring Security.
 - [x] Ocultar credenciales de base de datos usando variables de entorno.
 - [x] Refactorización y estandarización de código a `camelCase`.
-- [ ] Implementación de lógicas de negocio (validación de solapamiento de horas en citas).
+- [x] Validación de conflictos de horarios en citas (solapamiento según duración del servicio).
+- [ ] Validar que las citas sean en el futuro y dentro de horario laboral.
+- [ ] Validar unicidad de email al actualizar usuario.
+- [ ] Manejar eliminación de usuario/servicio con citas asociadas (soft delete).
+- [ ] Agregar validaciones (`@Valid`) y DTOs a Servicio y Cita.
+- [ ] Handler genérico de excepciones (evitar exponer stack traces).
+- [ ] Perfiles de configuración separados (dev/prod).
+- [ ] Implementar autenticación JWT y autorización por roles.
 - [ ] Desarrollo del Frontend interactivo consumiendo esta API.
 
 ---
