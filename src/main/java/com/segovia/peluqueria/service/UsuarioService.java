@@ -36,7 +36,12 @@ public class UsuarioService {
     }
 
     public UsuarioResponseDTO crearUsuario(UsuarioRequestDTO request){
-        // 1. Convertir el DTO a entidad
+        // 1. Validar que el email no esté registrado
+        if (usuarioRepository.existsByEmail(request.getEmail())) {
+            throw new IllegalArgumentException("Ya existe un usuario registrado con el email: " + request.getEmail());
+        }
+
+        // 2. Convertir el DTO a entidad
         Usuario nuevoUsuario = new Usuario();
         nuevoUsuario.setNombre(request.getNombre());
         nuevoUsuario.setEmail(request.getEmail());
@@ -91,6 +96,10 @@ public class UsuarioService {
             usuarioExistente.setNombre(request.getNombre());
         }
         if (request.getEmail() != null && !request.getEmail().isEmpty()) {
+            // Validar que el nuevo email no esté en uso por otro usuario
+            if (usuarioRepository.existsByEmailAndIdUsuarioNot(request.getEmail(), id)) {
+                throw new IllegalArgumentException("Ya existe otro usuario registrado con el email: " + request.getEmail());
+            }
             usuarioExistente.setEmail(request.getEmail());
         }
         if (request.getTelefono() != null && !request.getTelefono().isEmpty()) {
