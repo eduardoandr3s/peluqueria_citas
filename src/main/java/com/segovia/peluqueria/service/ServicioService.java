@@ -1,5 +1,7 @@
 package com.segovia.peluqueria.service;
 
+import com.segovia.peluqueria.dto.ServicioRequestDTO;
+import com.segovia.peluqueria.dto.ServicioUpdateDTO;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.model.Servicio;
 import com.segovia.peluqueria.repository.ServicioRepository;
@@ -18,8 +20,13 @@ public class ServicioService {
         return servicioRepository.findByActivoTrue();
     }
 
-    // Crear un nuevo servicio
-    public Servicio crearServicio(Servicio servicio) {
+    // Crear un nuevo servicio a partir del DTO
+    public Servicio crearServicio(ServicioRequestDTO request) {
+        Servicio servicio = new Servicio();
+        servicio.setNombre(request.getNombre());
+        servicio.setDescripcion(request.getDescripcion());
+        servicio.setPrecio(request.getPrecio());
+        servicio.setDuracion(request.getDuracion());
         return servicioRepository.save(servicio);
     }
 
@@ -30,18 +37,23 @@ public class ServicioService {
                         new ResourceNotFoundException("Servicio no encontrado con id: " + id));
     }
 
-    // Actualizar un servicio existente
-    public Servicio actualizarServicio(Integer id, Servicio servicioActualizado) {
-        // Obtener el servicio existente
+    // Actualizar un servicio existente (update parcial)
+    public Servicio actualizarServicio(Integer id, ServicioUpdateDTO request) {
         Servicio servicioExistente = obtenerServicioPorId(id);
 
-        // Actualizar los campos del servicio existente con los datos del servicio actualizado
-        servicioExistente.setNombre(servicioActualizado.getNombre());
-        servicioExistente.setDescripcion(servicioActualizado.getDescripcion());
-        servicioExistente.setPrecio(servicioActualizado.getPrecio());
-        servicioExistente.setDuracion(servicioActualizado.getDuracion());
+        if (request.getNombre() != null && !request.getNombre().isEmpty()) {
+            servicioExistente.setNombre(request.getNombre());
+        }
+        if (request.getDescripcion() != null) {
+            servicioExistente.setDescripcion(request.getDescripcion());
+        }
+        if (request.getPrecio() != null) {
+            servicioExistente.setPrecio(request.getPrecio());
+        }
+        if (request.getDuracion() != null) {
+            servicioExistente.setDuracion(request.getDuracion());
+        }
 
-        // Guardar el servicio actualizado en la base de datos
         return servicioRepository.save(servicioExistente);
     }
 

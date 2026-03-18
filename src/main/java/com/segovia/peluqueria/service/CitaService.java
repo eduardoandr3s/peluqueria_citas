@@ -1,5 +1,7 @@
 package com.segovia.peluqueria.service;
 
+import com.segovia.peluqueria.dto.CitaRequestDTO;
+import com.segovia.peluqueria.dto.CitaUpdateDTO;
 import com.segovia.peluqueria.exception.ConflictoHorarioException;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.model.Cita;
@@ -36,40 +38,37 @@ public class CitaService {
         return citaRepository.findAll();
     }
 
-    public Cita agendarCita(Cita cita) {
+    public Cita agendarCita(CitaRequestDTO request) {
 
-        //1. Buscar el usuario en base de datos
-        Usuario usuarioCompleto = usuarioRepository.findById(cita.getUsuario().getIdUsuario())
-                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con ID: " + cita.getUsuario().getIdUsuario()));
+        // 1. Buscar el usuario en base de datos
+        Usuario usuarioCompleto = usuarioRepository.findById(request.getUsuarioId())
+                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con ID: " + request.getUsuarioId()));
         if (!usuarioCompleto.getActivo()) {
             throw new IllegalArgumentException("No se puede agendar una cita con un usuario inactivo.");
         }
 
-        //2. Buscar el servicio en base de datos
-        Servicio servicioCompleto = servicioRepository.findById(cita.getServicio().getIdServicio())
-                .orElseThrow(() -> new ResourceNotFoundException("Servicio no encontrado con ID: " + cita.getServicio().getIdServicio()));
+        // 2. Buscar el servicio en base de datos
+        Servicio servicioCompleto = servicioRepository.findById(request.getServicioId())
+                .orElseThrow(() -> new ResourceNotFoundException("Servicio no encontrado con ID: " + request.getServicioId()));
         if (!servicioCompleto.getActivo()) {
             throw new IllegalArgumentException("No se puede agendar una cita con un servicio inactivo.");
         }
 
-        // 3. Asignar el usuario y servicio completos a la cita
+        // 3. Validar fecha futura y horario laboral
+        validarFechaFutura(request.getFechaHora());
+        validarHorarioLaboral(request.getFechaHora(), servicioCompleto.getDuracion());
+
+        // 4. Validar que no haya conflicto de horarios
+        validarConflictoHorario(request.getFechaHora(), servicioCompleto.getDuracion(), null);
+
+        // 5. Crear la entidad Cita
+        Cita cita = new Cita();
         cita.setUsuario(usuarioCompleto);
         cita.setServicio(servicioCompleto);
+        cita.setFechaHora(request.getFechaHora());
+        cita.setEstado(EstadoCita.PENDIENTE);
 
-        // 4. Validar fecha futura y horario laboral
-        validarFechaFutura(cita.getFechaHora());
-        validarHorarioLaboral(cita.getFechaHora(), servicioCompleto.getDuracion());
-
-        // 5. Validar que no haya conflicto de horarios
-        validarConflictoHorario(cita.getFechaHora(), servicioCompleto.getDuracion(), null);
-
-        //5. Si el estado de la cita no se ha especificado, asignar "PENDIENTE" por defecto
-
-        if (cita.getEstado() == null) {
-            cita.setEstado(EstadoCita.PENDIENTE);
-        }
-
-        //5. Guardar la cita en la base de datos
+        // 6. Guardar la cita en la base de datos
         return citaRepository.save(cita);
     }
 
@@ -79,46 +78,44 @@ public class CitaService {
                 .orElseThrow(() -> new ResourceNotFoundException("Cita no encontrada con ID: " + id));
     }
 
-    // método para actualizar una cita existente, permitiendo actualizar la fecha/hora, estado, usuario y servicio
-    public Cita actualizarCita(Integer id, Cita citaActualizada ){
+    // Actualizar una cita existente (update parcial)
+    public Cita actualizarCita(Integer id, CitaUpdateDTO request) {
 
-        //1. Obtener la cita existente de la base de datos
+        // 1. Obtener la cita existente de la base de datos
         Cita citaExistente = obtenerCitaPorId(id);
 
-        //2. Actualizar los campos de la cita existente con los valores de la cita actualizada, si no son nulos o vacíos
-        if (citaActualizada.getFechaHora() != null){
-            citaExistente.setFechaHora(citaActualizada.getFechaHora());
+        // 2. Actualizar fecha/hora si se proporciona
+        if (request.getFechaHora() != null) {
+            citaExistente.setFechaHora(request.getFechaHora());
         }
 
-
-        // 3. Solo actualizar el estado si se ha proporcionado un valor no nulo y no vacío
-        if (citaActualizada.getEstado() != null){
-            citaExistente.setEstado(citaActualizada.getEstado());
+        // 3. Actualizar estado si se proporciona
+        if (request.getEstado() != null) {
+            citaExistente.setEstado(request.getEstado());
         }
 
-        //4. Si se ha proporcionado un nuevo usuario o servicio, buscar el registro completo en la base de datos y asignarlo a la cita existente
-        if (citaActualizada.getUsuario() != null && citaActualizada.getUsuario().getIdUsuario() != null){
-            Usuario usuarioCompleto = usuarioRepository.findById(citaActualizada.getUsuario().getIdUsuario())
-                    .orElseThrow(()-> new ResourceNotFoundException("Usuario no encontrado con ID: " + citaActualizada.getUsuario().getIdUsuario()));
+        // 4. Actualizar usuario si se proporciona
+        if (request.getUsuarioId() != null) {
+            Usuario usuarioCompleto = usuarioRepository.findById(request.getUsuarioId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con ID: " + request.getUsuarioId()));
             citaExistente.setUsuario(usuarioCompleto);
         }
 
-
-        //5. Si se ha proporcionado un nuevo servicio o servicio, buscar el registro completo en la base de datos y asignarlo a la cita existente
-        if (citaActualizada.getServicio() != null && citaActualizada.getServicio().getIdServicio() != null){
-            Servicio servicioCompleto = servicioRepository.findById(citaActualizada.getServicio().getIdServicio())
-                    .orElseThrow(()-> new ResourceNotFoundException("Servicio no encontrado con ID: " + citaActualizada.getServicio().getIdServicio()));
+        // 5. Actualizar servicio si se proporciona
+        if (request.getServicioId() != null) {
+            Servicio servicioCompleto = servicioRepository.findById(request.getServicioId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Servicio no encontrado con ID: " + request.getServicioId()));
             citaExistente.setServicio(servicioCompleto);
         }
 
         // 6. Si se cambio la fecha/hora o el servicio, validar fecha, horario y conflictos
-        if (citaActualizada.getFechaHora() != null || citaActualizada.getServicio() != null) {
+        if (request.getFechaHora() != null || request.getServicioId() != null) {
             validarFechaFutura(citaExistente.getFechaHora());
             validarHorarioLaboral(citaExistente.getFechaHora(), citaExistente.getServicio().getDuracion());
             validarConflictoHorario(citaExistente.getFechaHora(), citaExistente.getServicio().getDuracion(), id);
         }
 
-        //7. Guardar la cita actualizada en la base de datos
+        // 7. Guardar la cita actualizada en la base de datos
         return citaRepository.save(citaExistente);
     }
 
