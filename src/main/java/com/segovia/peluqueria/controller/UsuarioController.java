@@ -2,6 +2,7 @@ package com.segovia.peluqueria.controller;
 
 import com.segovia.peluqueria.dto.UsuarioRequestDTO;
 import com.segovia.peluqueria.dto.UsuarioResponseDTO;
+import com.segovia.peluqueria.dto.UsuarioUpdateDTO;
 import com.segovia.peluqueria.service.UsuarioService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,7 +39,7 @@ public class UsuarioController {
 
     // Endpoint para actualizar un usuario existente, recibe el ID del usuario a actualizar y un UsuarioRequestDTO con los nuevos datos
     @PutMapping("/{id}")
-    public UsuarioResponseDTO actualizarUsuario(@PathVariable Integer id, @Valid @RequestBody UsuarioRequestDTO request){
+    public UsuarioResponseDTO actualizarUsuario(@PathVariable Integer id, @Valid @RequestBody UsuarioUpdateDTO request){
         return usuarioService.actualizarUsuario(id, request);
     }
 

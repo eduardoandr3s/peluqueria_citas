@@ -2,10 +2,12 @@ package com.segovia.peluqueria.service;
 
 import com.segovia.peluqueria.dto.UsuarioRequestDTO;
 import com.segovia.peluqueria.dto.UsuarioResponseDTO;
+import com.segovia.peluqueria.dto.UsuarioUpdateDTO;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.model.Usuario;
 import com.segovia.peluqueria.repository.UsuarioRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -17,6 +19,9 @@ public class UsuarioService {
 
     @Autowired
     private UsuarioRepository usuarioRepository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     // Obtener los usarios mapeando a DTO
     public List<UsuarioResponseDTO> listarUsuarios() {
@@ -36,8 +41,13 @@ public class UsuarioService {
         nuevoUsuario.setNombre(request.getNombre());
         nuevoUsuario.setEmail(request.getEmail());
         nuevoUsuario.setTelefono(request.getTelefono());
-        nuevoUsuario.setPassword(request.getPassword());
-        // fecha_reggistro con LocalDate.now()
+
+        // Encriptar la contraseña antes de guardarla en la base de datos
+        String passwordEncriptada = passwordEncoder.encode(request.getPassword());
+        nuevoUsuario.setPassword(passwordEncriptada);
+
+
+        // fecha_registro con LocalDate.now()
         nuevoUsuario.setFecha_registro(LocalDate.now());
 
         //2. Guardar la entidad en la base de datos
@@ -71,15 +81,28 @@ public class UsuarioService {
     }
 
     // Método público para actualizar un usuario existente por su ID, recibiendo un DTO de solicitud y devolviendo un DTO de respuesta
-    public UsuarioResponseDTO actualizarUsuario(Integer id, UsuarioRequestDTO request){
+    public UsuarioResponseDTO actualizarUsuario(Integer id, UsuarioUpdateDTO request) {
         // 1. Obtener la entidad existente por su ID, lanzando una excepción si no se encuentra
         Usuario usuarioExistente = obtenerEntidadPorId(id);
 
         // 2. Actualizar los campos de la entidad con los datos del DTO de solicitud
-        usuarioExistente.setNombre(request.getNombre());
-        usuarioExistente.setEmail(request.getEmail());
-        usuarioExistente.setTelefono(request.getTelefono());
-        usuarioExistente.setPassword(request.getPassword());
+
+        if (request.getNombre() != null && !request.getNombre().isEmpty()) {
+            usuarioExistente.setNombre(request.getNombre());
+        }
+        if (request.getEmail() != null && !request.getEmail().isEmpty()) {
+            usuarioExistente.setEmail(request.getEmail());
+        }
+        if (request.getTelefono() != null && !request.getTelefono().isEmpty()) {
+            usuarioExistente.setTelefono(request.getTelefono());
+        }
+
+        // Encriptar la nueva contraseña antes de actualizarla en la base de datos
+        if (request.getPassword() != null && !request.getPassword().isEmpty()) {
+            usuarioExistente.setPassword(passwordEncoder.encode(request.getPassword()));
+        }
+
+
 
         // 3. Guardar la entidad actualizada en la base de datos
         Usuario usuarioGuardado = usuarioRepository.save(usuarioExistente);

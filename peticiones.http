@@ -14,11 +14,11 @@ POST http://localhost:8080/api/usuarios
 Content-Type: application/json
 
 {
-  "nombre": "Montse Segovia",
-  "email": "segoviamontse2015@hotmail.com",
-  "telefono": "89a689123",
-  "password": "passwfsfd",
-  "fecha_registro": "2026-03-17"
+  "nombre": "Renata Segovia",
+  "email": "segoviarenata2017@gmail.com",
+  "telefono": "989689123",
+  "password": "password123",
+  "fecha_registro": "2026-03-18"
 }
 
 ### Agendar una Cita
@@ -62,15 +62,12 @@ DELETE http://localhost:8080/api/servicios/5
 GET http://localhost:8080/api/usuarios/4
 
 ### Actualizar un usuario
-PUT http://localhost:8080/api/usuarios/5
+PUT http://localhost:8080/api/usuarios/3
 Content-Type: application/json
 
 {
-  "nombre": "Montse Segovia",
-  "email": "segoviamontse2015",
-  "telefono": "89689123",
-  "password": "passw",
-  "fecha_registro": "2026-03-17"
+
+"password": "password123"
 }
 
 ### Eliminar un usuario
