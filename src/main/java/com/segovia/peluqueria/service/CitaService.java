@@ -12,11 +12,16 @@ import com.segovia.peluqueria.repository.UsuarioRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.DayOfWeek;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 
-@Service // anotación para marcar esta clase como un servicio de Spring
+@Service
 public class CitaService {
+
+    private static final LocalTime HORA_APERTURA = LocalTime.of(9, 0);
+    private static final LocalTime HORA_CIERRE = LocalTime.of(20, 0);
 
     @Autowired
     private CitaRepository citaRepository;
@@ -45,7 +50,11 @@ public class CitaService {
         cita.setUsuario(usuarioCompleto);
         cita.setServicio(servicioCompleto);
 
-        // 4. Validar que no haya conflicto de horarios
+        // 4. Validar fecha futura y horario laboral
+        validarFechaFutura(cita.getFechaHora());
+        validarHorarioLaboral(cita.getFechaHora(), servicioCompleto.getDuracion());
+
+        // 5. Validar que no haya conflicto de horarios
         validarConflictoHorario(cita.getFechaHora(), servicioCompleto.getDuracion(), null);
 
         //5. Si el estado de la cita no se ha especificado, asignar "PENDIENTE" por defecto
@@ -96,8 +105,10 @@ public class CitaService {
             citaExistente.setServicio(servicioCompleto);
         }
 
-        // 6. Si se cambio la fecha/hora o el servicio, validar conflictos de horario
+        // 6. Si se cambio la fecha/hora o el servicio, validar fecha, horario y conflictos
         if (citaActualizada.getFechaHora() != null || citaActualizada.getServicio() != null) {
+            validarFechaFutura(citaExistente.getFechaHora());
+            validarHorarioLaboral(citaExistente.getFechaHora(), citaExistente.getServicio().getDuracion());
             validarConflictoHorario(citaExistente.getFechaHora(), citaExistente.getServicio().getDuracion(), id);
         }
 
@@ -109,6 +120,32 @@ public class CitaService {
     public void eliminarCita(Integer id){
         Cita citaExistente = obtenerCitaPorId(id);
         citaRepository.delete(citaExistente);
+    }
+
+    // Valida que la fecha de la cita sea en el futuro
+    private void validarFechaFutura(LocalDateTime fechaHora) {
+        if (fechaHora.isBefore(LocalDateTime.now())) {
+            throw new IllegalArgumentException("No se puede agendar una cita en el pasado.");
+        }
+    }
+
+    // Valida que la cita (inicio y fin) esté dentro del horario laboral: Lunes a Sabado, 9:00 - 20:00
+    private void validarHorarioLaboral(LocalDateTime inicio, Integer duracionMinutos) {
+        LocalTime horaInicio = inicio.toLocalTime();
+        LocalTime horaFin = horaInicio.plusMinutes(duracionMinutos);
+        DayOfWeek dia = inicio.getDayOfWeek();
+
+        if (dia == DayOfWeek.SUNDAY) {
+            throw new IllegalArgumentException("No se atiende los domingos.");
+        }
+
+        if (horaInicio.isBefore(HORA_APERTURA)) {
+            throw new IllegalArgumentException("La cita no puede ser antes de las " + HORA_APERTURA + ".");
+        }
+
+        if (horaFin.isAfter(HORA_CIERRE)) {
+            throw new IllegalArgumentException("La cita (incluyendo la duracion del servicio) no puede terminar despues de las " + HORA_CIERRE + ".");
+        }
     }
 
     // Valida que no existan citas que se solapen con el rango [inicio, inicio + duracion)

@@ -44,6 +44,15 @@ public class GlobalExceptionHandler {
         return error;
     }
 
+    // Captura errores de validacion de logica de negocio (fecha pasada, horario fuera de rango, etc.)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    @ExceptionHandler(IllegalArgumentException.class)
+    public Map<String, String> manejarArgumentoInvalido(IllegalArgumentException ex) {
+        Map<String, String> error = new HashMap<>();
+        error.put("error", ex.getMessage());
+        return error;
+    }
+
 // Captura específicamente cuando intentamos eliminar un recurso que tiene relaciones en la BD
     @ResponseStatus(HttpStatus.CONFLICT)
     @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
