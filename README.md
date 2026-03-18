@@ -23,6 +23,7 @@ El núcleo del proyecto está construido bajo estándares actuales de la industr
 * **Manejo Global de Excepciones:** Uso de `@RestControllerAdvice` para capturar y estandarizar las respuestas de error (Ej: 404 para recursos no encontrados, 400 para errores de validación, 409 para conflictos de integridad en la base de datos).
 * **Validación de Datos:** Uso de anotaciones como `@NotBlank` y `@Email` para proteger la integridad de los datos antes de llegar a la base de datos.
 * **Tipado Estricto con Enums:** Blindaje del estado de las citas mediante enumeraciones (`PENDIENTE`, `CONFIRMADA`, `ANULADA`).
+* **Estándares Clean Code:** Refactorización de la API para utilizar convenciones `camelCase` en el modelo y DTOs, garantizando una serialización JSON limpia para el Frontend, manteniendo la compatibilidad `snake_case` en PostgreSQL.
 
 ## 🗄️ Modelo de Datos
 
@@ -30,7 +31,7 @@ La arquitectura de la información se basa en un esquema relacional limpio con t
 
 * **`servicios`**: Catálogo de la peluquería (ej. cortes, tinturas, alisados). Almacena descripción, duración en minutos y precio.
 * **`usuarios`**: Gestión de clientes registrados, almacenando datos de contacto y credenciales de acceso.
-* **`citas`**: Entidad transaccional que vincula a un `usuario` con un `servicio` en una `fecha_hora` específica. Gestiona su estado mediante un `Enum` mapeado a texto.
+* **`citas`**: Entidad transaccional que vincula a un `usuario` con un `servicio` en una `fechaHora` específica. Gestiona su estado mediante un `Enum` mapeado a texto.
 
 ## ⚙️ Configuración y Puesta en Marcha
 
@@ -75,7 +76,8 @@ La arquitectura de la información se basa en un esquema relacional limpio con t
 - [x] CRUD completo (GET, POST, PUT, DELETE) para todas las entidades.
 - [x] Creación de archivo `peticiones.http` para pruebas locales integradas.
 - [x] Encriptación de contraseñas (BCrypt) e implementación de Spring Security.
-- [ ] Ocultar credenciales de base de datos usando variables de entorno.
+- [x] Ocultar credenciales de base de datos usando variables de entorno.
+- [x] Refactorización y estandarización de código a `camelCase`.
 - [ ] Implementación de lógicas de negocio (validación de solapamiento de horas en citas).
 - [ ] Desarrollo del Frontend interactivo consumiendo esta API.
 
