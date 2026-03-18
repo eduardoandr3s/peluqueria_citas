@@ -35,12 +35,21 @@ public class GlobalExceptionHandler {
         return error;
     }
 
-// Captura específicamente cuando intentamos eliminar un recurso que tiene relaciones en la BD (por ejemplo, eliminar un cliente que tiene citas agendadas)
+    // Captura cuando se intenta agendar una cita en un horario ya ocupado
+    @ResponseStatus(HttpStatus.CONFLICT)
+    @ExceptionHandler(ConflictoHorarioException.class)
+    public Map<String, String> manejarConflictoHorario(ConflictoHorarioException ex) {
+        Map<String, String> error = new HashMap<>();
+        error.put("error", ex.getMessage());
+        return error;
+    }
+
+// Captura específicamente cuando intentamos eliminar un recurso que tiene relaciones en la BD
     @ResponseStatus(HttpStatus.CONFLICT)
     @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
     public Map<String, String> manejarViolacionDeIntegridad(org.springframework.dao.DataIntegrityViolationException ex) {
         Map<String, String> error = new HashMap<>();
-        error.put("error", "No se puede eliminar este registro porque tiene otros datos asociados (por ejemplo, citas agendadas).");
+        error.put("error", "No se puede eliminar este registro porque tiene otros datos asociados.");
         return error;
     }
 }

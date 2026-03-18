@@ -1,5 +1,6 @@
 package com.segovia.peluqueria.service;
 
+import com.segovia.peluqueria.exception.ConflictoHorarioException;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.model.Cita;
 import com.segovia.peluqueria.model.EstadoCita;
@@ -11,6 +12,7 @@ import com.segovia.peluqueria.repository.UsuarioRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service // anotación para marcar esta clase como un servicio de Spring
@@ -40,11 +42,13 @@ public class CitaService {
                 .orElseThrow(() -> new ResourceNotFoundException("Servicio no encontrado con ID: " + cita.getServicio().getIdServicio()));
 
         // 3. Asignar el usuario y servicio completos a la cita
-
         cita.setUsuario(usuarioCompleto);
         cita.setServicio(servicioCompleto);
 
-        //4. Si el estado de la cita no se ha especificado, asignar "PENDIENTE" por defecto
+        // 4. Validar que no haya conflicto de horarios
+        validarConflictoHorario(cita.getFechaHora(), servicioCompleto.getDuracion(), null);
+
+        //5. Si el estado de la cita no se ha especificado, asignar "PENDIENTE" por defecto
 
         if (cita.getEstado() == null) {
             cita.setEstado(EstadoCita.PENDIENTE);
@@ -92,7 +96,12 @@ public class CitaService {
             citaExistente.setServicio(servicioCompleto);
         }
 
-        //6. Guardar la cita actualizada en la base de datos
+        // 6. Si se cambio la fecha/hora o el servicio, validar conflictos de horario
+        if (citaActualizada.getFechaHora() != null || citaActualizada.getServicio() != null) {
+            validarConflictoHorario(citaExistente.getFechaHora(), citaExistente.getServicio().getDuracion(), id);
+        }
+
+        //7. Guardar la cita actualizada en la base de datos
         return citaRepository.save(citaExistente);
     }
 
@@ -100,6 +109,23 @@ public class CitaService {
     public void eliminarCita(Integer id){
         Cita citaExistente = obtenerCitaPorId(id);
         citaRepository.delete(citaExistente);
+    }
+
+    // Valida que no existan citas que se solapen con el rango [inicio, inicio + duracion)
+    // Si idExcluir no es null, excluye esa cita de la busqueda (para actualizaciones)
+    private void validarConflictoHorario(LocalDateTime inicio, Integer duracionMinutos, Integer idExcluir) {
+        LocalDateTime fin = inicio.plusMinutes(duracionMinutos);
+
+        int conflictos;
+        if (idExcluir != null) {
+            conflictos = citaRepository.contarConflictosExcluyendo(inicio, fin, idExcluir);
+        } else {
+            conflictos = citaRepository.contarConflictos(inicio, fin);
+        }
+
+        if (conflictos > 0) {
+            throw new ConflictoHorarioException("Ya existe una cita agendada en ese horario. Por favor elige otro horario.");
+        }
     }
 
 }
