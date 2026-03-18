@@ -53,12 +53,21 @@ public class GlobalExceptionHandler {
         return error;
     }
 
-// Captura específicamente cuando intentamos eliminar un recurso que tiene relaciones en la BD
+    // Captura cuando intentamos eliminar un recurso que tiene relaciones en la BD
     @ResponseStatus(HttpStatus.CONFLICT)
     @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
     public Map<String, String> manejarViolacionDeIntegridad(org.springframework.dao.DataIntegrityViolationException ex) {
         Map<String, String> error = new HashMap<>();
         error.put("error", "No se puede eliminar este registro porque tiene otros datos asociados.");
+        return error;
+    }
+
+    // Handler generico: atrapa cualquier excepcion no controlada y devuelve un mensaje seguro sin exponer el stack trace
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    @ExceptionHandler(Exception.class)
+    public Map<String, String> manejarErrorGenerico(Exception ex) {
+        Map<String, String> error = new HashMap<>();
+        error.put("error", "Ha ocurrido un error interno en el servidor. Por favor intente mas tarde.");
         return error;
     }
 }
