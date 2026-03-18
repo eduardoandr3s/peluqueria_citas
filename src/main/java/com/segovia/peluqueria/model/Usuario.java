@@ -33,6 +33,6 @@ public class Usuario {
     @Column(name = "fecha_registro")
     private LocalDate fechaRegistro;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "boolean default true")
     private Boolean activo = true;
 }

@@ -30,7 +30,7 @@ public class Servicio {
     // si no se especifica el tipo de dato, se asume que es un entero con el mismo nombre que el campo en la base de datos
     private Integer duracion; // Duración en minutos
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "boolean default true")
     private Boolean activo = true;
 }
 
