@@ -10,6 +10,7 @@ El núcleo del proyecto está construido bajo estándares actuales de la industr
 * **Spring Boot 4.0.3** (Framework principal)
 * **PostgreSQL** (Base de datos relacional)
 * **Spring Data JPA / Hibernate** (ORM para el mapeo de la base de datos)
+* **Spring Security & BCrypt** (Encriptación de credenciales y seguridad de la API)
 * **Spring Boot Validation** (Validación estricta de datos de entrada)
 * **Maven** (Gestor de dependencias y construcción)
 * **Lombok** (Optimización y reducción de código *boilerplate*)
@@ -17,7 +18,8 @@ El núcleo del proyecto está construido bajo estándares actuales de la industr
 ## ✨ Características Implementadas
 
 * **Arquitectura Multicapa:** Separación clara entre Controladores (API), Servicios (Lógica de negocio) y Repositorios (Acceso a datos).
-* **Patrón DTO (Data Transfer Object):** Implementado para la entidad `Usuario`, garantizando que información sensible (como las contraseñas) no se exponga en las respuestas JSON.
+* **Seguridad y Encriptación:** Uso de Spring Security y `BCryptPasswordEncoder` para encriptar las contraseñas de los usuarios en la base de datos de forma unidireccional.
+* **Patrón DTO (Data Transfer Object):** Implementado para la entidad `Usuario`, garantizando que información sensible no se exponga, y permitiendo actualizaciones parciales (Update DTO) sin exigir campos obligatorios.
 * **Manejo Global de Excepciones:** Uso de `@RestControllerAdvice` para capturar y estandarizar las respuestas de error (Ej: 404 para recursos no encontrados, 400 para errores de validación, 409 para conflictos de integridad en la base de datos).
 * **Validación de Datos:** Uso de anotaciones como `@NotBlank` y `@Email` para proteger la integridad de los datos antes de llegar a la base de datos.
 * **Tipado Estricto con Enums:** Blindaje del estado de las citas mediante enumeraciones (`PENDIENTE`, `CONFIRMADA`, `ANULADA`).
@@ -51,11 +53,11 @@ La arquitectura de la información se basa en un esquema relacional limpio con t
     CREATE DATABASE peluqueria_db;
     ```
 
-3.  **Configurar credenciales:**
-    Navega hasta el archivo `src/main/resources/application.properties` y modifica la contraseña por la de tu usuario de PostgreSQL local:
-    ```properties
-    spring.datasource.password=tu_contraseña_aqui
-    ```
+3.  **Configurar credenciales (Variables de Entorno):**
+    El proyecto utiliza variables de entorno para proteger las credenciales de la base de datos. Antes de ejecutar, asegúrate de configurar las siguientes variables en tu sistema o IDE:
+    * `DB_USERNAME`: Tu usuario de PostgreSQL.
+    * `DB_PASSWORD`: Tu contraseña de PostgreSQL.
+
     *(Nota: La propiedad `spring.jpa.hibernate.ddl-auto=update` se encargará de crear y actualizar las tablas automáticamente al iniciar la aplicación).*
 
 4.  **Ejecutar la aplicación:**
@@ -72,7 +74,7 @@ La arquitectura de la información se basa en un esquema relacional limpio con t
 - [x] Implementación del Patrón DTO, Validaciones de entrada y Manejo Global de Excepciones.
 - [x] CRUD completo (GET, POST, PUT, DELETE) para todas las entidades.
 - [x] Creación de archivo `peticiones.http` para pruebas locales integradas.
-- [ ] Encriptación de contraseñas (BCrypt) e implementación de Spring Security.
+- [x] Encriptación de contraseñas (BCrypt) e implementación de Spring Security.
 - [ ] Ocultar credenciales de base de datos usando variables de entorno.
 - [ ] Implementación de lógicas de negocio (validación de solapamiento de horas en citas).
 - [ ] Desarrollo del Frontend interactivo consumiendo esta API.
