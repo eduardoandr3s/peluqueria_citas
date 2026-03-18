@@ -15,9 +15,9 @@ Content-Type: application/json
 
 {
   "nombre": "Montse Segovia",
-  "email": "segoviamontse2015@gmail.com",
-  "telefono": "+34689689123",
-  "password": "password123",
+  "email": "segoviamontse2015",
+  "telefono": "89689123",
+  "password": "passw",
   "fecha_registro": "2026-03-17"
 }
 
@@ -27,10 +27,10 @@ Content-Type: application/json
 
 {
   "usuario": {
-    "id_usuario": 3
+    "id_usuario": 333
   },
   "servicio": {
-    "id_servicio": 4
+    "id_servicio": 433
   },
   "fecha_hora": "2026-03-19T07:30:00"
 }

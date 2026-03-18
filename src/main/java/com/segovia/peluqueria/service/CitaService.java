@@ -1,5 +1,6 @@
 package com.segovia.peluqueria.service;
 
+import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.model.Cita;
 import com.segovia.peluqueria.model.Servicio;
 import com.segovia.peluqueria.model.Usuario;
@@ -31,11 +32,11 @@ public class CitaService {
 
         //1. Buscar el usuario en base de datos
         Usuario usuarioCompleto = usuarioRepository.findById(cita.getUsuario().getId_usuario())
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado con ID: " + cita.getUsuario().getId_usuario()));
+                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con ID: " + cita.getUsuario().getId_usuario()));
 
         //2. Buscar el servicio en base de datos
         Servicio servicioCompleto = servicioRepository.findById(cita.getServicio().getId_servicio())
-                .orElseThrow(() -> new RuntimeException("Servicio no encontrado con ID: " + cita.getServicio().getId_servicio()));
+                .orElseThrow(() -> new ResourceNotFoundException("Servicio no encontrado con ID: " + cita.getServicio().getId_servicio()));
 
         // 3. Asignar el usuario y servicio completos a la cita
 
