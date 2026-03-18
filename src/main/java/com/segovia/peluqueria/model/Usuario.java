@@ -33,6 +33,10 @@ public class Usuario {
     @Column(name = "fecha_registro")
     private LocalDate fechaRegistro;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, columnDefinition = "varchar(10) default 'USER'")
+    private Rol rol = Rol.USER;
+
     @Column(nullable = false, columnDefinition = "boolean default true")
     private Boolean activo = true;
 }

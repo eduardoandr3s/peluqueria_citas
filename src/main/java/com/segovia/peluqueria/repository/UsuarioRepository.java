@@ -4,6 +4,7 @@ import com.segovia.peluqueria.model.Usuario;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface UsuarioRepository extends JpaRepository<Usuario, Integer> {
     // JpaRepository ya tiene programado por detrás el guardar, borrar, buscar por ID, etc.
@@ -14,6 +15,9 @@ public interface UsuarioRepository extends JpaRepository<Usuario, Integer> {
 
     // Verifica si ya existe un usuario con ese email, excluyendo un ID especifico (para updates)
     boolean existsByEmailAndIdUsuarioNot(String email, Integer idUsuario);
+
+    // Busca un usuario por su email
+    Optional<Usuario> findByEmail(String email);
 
     // Lista solo los usuarios activos
     List<Usuario> findByActivoTrue();
