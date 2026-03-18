@@ -23,9 +23,9 @@ public class UsuarioService {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
-    // Obtener los usarios mapeando a DTO
+    // Obtener los usuarios activos mapeando a DTO
     public List<UsuarioResponseDTO> listarUsuarios() {
-        List<Usuario> usuarios = usuarioRepository.findAll();
+        List<Usuario> usuarios = usuarioRepository.findByActivoTrue();
         List<UsuarioResponseDTO> respuesta = new ArrayList<>();
 
         for (Usuario u : usuarios){
@@ -120,10 +120,11 @@ public class UsuarioService {
         return mapearAResponseDTO(usuarioGuardado);
     }
 
-    // Método público para eliminar un usuario por su ID
+    // Soft delete: marca al usuario como inactivo en vez de eliminarlo
     public void eliminarUsuario(Integer id){
         Usuario usuarioExistente = obtenerEntidadPorId(id);
-        usuarioRepository.delete(usuarioExistente);
+        usuarioExistente.setActivo(false);
+        usuarioRepository.save(usuarioExistente);
     }
 
 

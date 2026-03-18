@@ -13,9 +13,9 @@ public class ServicioService {
     @Autowired
     private ServicioRepository servicioRepository;
 
-    // Listar todos los servicios
+    // Listar solo los servicios activos
     public List<Servicio> listarServicios() {
-        return servicioRepository.findAll();
+        return servicioRepository.findByActivoTrue();
     }
 
     // Crear un nuevo servicio
@@ -45,12 +45,10 @@ public class ServicioService {
         return servicioRepository.save(servicioExistente);
     }
 
-    // Eliminar un servicio por su ID
+    // Soft delete: marca el servicio como inactivo en vez de eliminarlo
     public void eliminarServicio(Integer id) {
-        // Verificar si el servicio existe antes de eliminarlo
         Servicio servicioExistente = obtenerServicioPorId(id);
-
-        // Eliminar el servicio de la base de datos
-        servicioRepository.delete(servicioExistente);
+        servicioExistente.setActivo(false);
+        servicioRepository.save(servicioExistente);
     }
 }

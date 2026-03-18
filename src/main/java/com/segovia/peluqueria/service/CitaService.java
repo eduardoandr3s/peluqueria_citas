@@ -41,10 +41,16 @@ public class CitaService {
         //1. Buscar el usuario en base de datos
         Usuario usuarioCompleto = usuarioRepository.findById(cita.getUsuario().getIdUsuario())
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con ID: " + cita.getUsuario().getIdUsuario()));
+        if (!usuarioCompleto.getActivo()) {
+            throw new IllegalArgumentException("No se puede agendar una cita con un usuario inactivo.");
+        }
 
         //2. Buscar el servicio en base de datos
         Servicio servicioCompleto = servicioRepository.findById(cita.getServicio().getIdServicio())
                 .orElseThrow(() -> new ResourceNotFoundException("Servicio no encontrado con ID: " + cita.getServicio().getIdServicio()));
+        if (!servicioCompleto.getActivo()) {
+            throw new IllegalArgumentException("No se puede agendar una cita con un servicio inactivo.");
+        }
 
         // 3. Asignar el usuario y servicio completos a la cita
         cita.setUsuario(usuarioCompleto);

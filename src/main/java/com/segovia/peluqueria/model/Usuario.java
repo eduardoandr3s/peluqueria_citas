@@ -32,4 +32,7 @@ public class Usuario {
 
     @Column(name = "fecha_registro")
     private LocalDate fechaRegistro;
+
+    @Column(nullable = false)
+    private Boolean activo = true;
 }
