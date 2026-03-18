@@ -30,6 +30,7 @@ public class Cita {
     @Column(nullable = false)
     private LocalDateTime fecha_hora;
 
+    @Enumerated(EnumType.STRING)
     @Column(length = 50)
-    private String estado; // pendiente, confirmada, anulada
+    private EstadoCita estado; // PENDIENTE, CONFIRMADA, ANULADA
 }

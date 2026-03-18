@@ -3,6 +3,7 @@ package com.segovia.peluqueria.controller;
 import com.segovia.peluqueria.model.Servicio;
 import com.segovia.peluqueria.service.ServicioService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -30,5 +31,24 @@ public class ServicioController {
 
     }
 
+    //Método para obtener un servicio por su ID (GET /api/servicios/{id}). @PathVariable indica que el valor del ID se extraerá de la ruta de la solicitud HTTP.
+    @GetMapping("/{id}")
+    public Servicio obtenerServicioPorId(@PathVariable Integer id){
+        return servicioService.obtenerServicioPorId(id);
+    }
+
+    // Método para actualizar un servicio existente (PUT /api/servicios/{id}). @RequestBody se utiliza para recibir los datos actualizados del servicio en el cuerpo de la solicitud HTTP.
+    @PutMapping("/{id}")
+    public Servicio actualizarServicio(@PathVariable Integer id, @RequestBody Servicio servicioActualizado) {
+        return servicioService.actualizarServicio(id, servicioActualizado);
+    }
+
+    // Método para eliminar un servicio por su ID (DELETE /api/servicios/{id}).
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> eliminarServicio(@PathVariable Integer id) {
+           servicioService.eliminarServicio(id);
+           // ResponseEntity.noContent(), nos ayudará a construir una respuesta HTTP con el código de estado 204 No Content. COn esto sabemos que fue eliminado.
+           return ResponseEntity.noContent().build();
+    }
 
 }

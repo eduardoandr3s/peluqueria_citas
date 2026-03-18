@@ -3,8 +3,8 @@ POST http://localhost:8080/api/servicios
 Content-Type: application/json
 
 {
-  "nombre": "Peinado fallera simple",
-  "descripcion": "Peinado con partidura al medio y 2 tocados a los costados.",
+  "nombre": "TEST",
+  "descripcion": "TEST",
   "precio": 25.00,
   "duracion": 20
 }
@@ -15,9 +15,9 @@ Content-Type: application/json
 
 {
   "nombre": "Montse Segovia",
-  "email": "segoviamontse2015",
-  "telefono": "89689123",
-  "password": "passw",
+  "email": "segoviamontse2015@hotmail.com",
+  "telefono": "89a689123",
+  "password": "passwfsfd",
   "fecha_registro": "2026-03-17"
 }
 
@@ -27,14 +27,72 @@ Content-Type: application/json
 
 {
   "usuario": {
-    "id_usuario": 333
+    "id_usuario": 1
   },
   "servicio": {
-    "id_servicio": 433
+    "id_servicio": 3
   },
-  "fecha_hora": "2026-03-19T07:30:00"
+  "fecha_hora": "2026-03-19T08:30:00"
 }
 
 ### Obtener lista de usuarios
 
 GET http://localhost:8080/api/usuarios
+
+### Obtener un servicio por ID
+GET http://localhost:8080/api/servicios/5
+
+### Actualizar un servicio
+PUT http://localhost:8080/api/servicios/5
+Content-Type: application/json
+
+{
+
+  "nombre": "Peinado premium hombre",
+    "descripcion": "Peinado con secador y gomina",
+    "precio": 20.00,
+    "duracion": 20
+
+}
+
+### Eliminar un servicio
+DELETE http://localhost:8080/api/servicios/5
+
+### Obtener usuarios por ID
+GET http://localhost:8080/api/usuarios/4
+
+### Actualizar un usuario
+PUT http://localhost:8080/api/usuarios/5
+Content-Type: application/json
+
+{
+  "nombre": "Montse Segovia",
+  "email": "segoviamontse2015",
+  "telefono": "89689123",
+  "password": "passw",
+  "fecha_registro": "2026-03-17"
+}
+
+### Eliminar un usuario
+DELETE http://localhost:8080/api/usuarios/4
+
+### Obtener citas por ID
+GET http://localhost:8080/api/citas/4
+
+### Actualizar una cita
+PUT http://localhost:8080/api/citas/4
+Content-Type: application/json
+
+{
+  "usuario": {
+    "id_usuario": 2
+  },
+  "servicio": {
+    "id_servicio": 1
+  },
+  "fecha_hora": "2026-03-18T19:30:00",
+  "estado": "ANULADA"
+}
+
+### Eliminar una cita
+DELETE http://localhost:8080/api/citas/5

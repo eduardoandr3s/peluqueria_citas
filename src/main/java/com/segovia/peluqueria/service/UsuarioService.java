@@ -2,6 +2,7 @@ package com.segovia.peluqueria.service;
 
 import com.segovia.peluqueria.dto.UsuarioRequestDTO;
 import com.segovia.peluqueria.dto.UsuarioResponseDTO;
+import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.model.Usuario;
 import com.segovia.peluqueria.repository.UsuarioRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,7 +58,41 @@ public class UsuarioService {
         return dto;
     }
 
+    // método privado para obtener la entidad Usuario por su ID, lanzando una excepción si no se encuentra
+    private Usuario obtenerEntidadPorId(Integer id){
+        return  usuarioRepository.findById(id)
+                .orElseThrow(()-> new ResourceNotFoundException("Usuario no encontrado con id: " + id));
+    }
 
+    // Método público para obtener un usuario por su ID, devolviendo un DTO de respuesta
+    public UsuarioResponseDTO obtenerUsuarioPorId(Integer id){
+        Usuario usuario = obtenerEntidadPorId(id);
+        return mapearAResponseDTO(usuario);
+    }
+
+    // Método público para actualizar un usuario existente por su ID, recibiendo un DTO de solicitud y devolviendo un DTO de respuesta
+    public UsuarioResponseDTO actualizarUsuario(Integer id, UsuarioRequestDTO request){
+        // 1. Obtener la entidad existente por su ID, lanzando una excepción si no se encuentra
+        Usuario usuarioExistente = obtenerEntidadPorId(id);
+
+        // 2. Actualizar los campos de la entidad con los datos del DTO de solicitud
+        usuarioExistente.setNombre(request.getNombre());
+        usuarioExistente.setEmail(request.getEmail());
+        usuarioExistente.setTelefono(request.getTelefono());
+        usuarioExistente.setPassword(request.getPassword());
+
+        // 3. Guardar la entidad actualizada en la base de datos
+        Usuario usuarioGuardado = usuarioRepository.save(usuarioExistente);
+
+        // 4. Convertir la entidad guardada a DTO de respuesta y devolverlo
+        return mapearAResponseDTO(usuarioGuardado);
+    }
+
+    // Método público para eliminar un usuario por su ID
+    public void eliminarUsuario(Integer id){
+        Usuario usuarioExistente = obtenerEntidadPorId(id);
+        usuarioRepository.delete(usuarioExistente);
+    }
 
 
 }
