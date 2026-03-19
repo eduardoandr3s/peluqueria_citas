@@ -1,8 +1,8 @@
 package com.segovia.peluqueria.security;
 
-import com.segovia.peluqueria.model.Rol;
-import com.segovia.peluqueria.model.Usuario;
-import com.segovia.peluqueria.repository.UsuarioRepository;
+import com.segovia.peluqueria.usuario.Rol;
+import com.segovia.peluqueria.usuario.Usuario;
+import com.segovia.peluqueria.usuario.UsuarioRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.core.userdetails.UserDetails;

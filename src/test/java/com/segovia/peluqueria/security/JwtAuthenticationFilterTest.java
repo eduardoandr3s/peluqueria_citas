@@ -35,14 +35,11 @@ class JwtAuthenticationFilterTest {
         request = new MockHttpServletRequest();
         response = new MockHttpServletResponse();
 
-        // Limpiar contexto de seguridad antes de cada test
         SecurityContextHolder.clearContext();
     }
 
     @Test
     void request_sinHeader_continuaSinAutenticar() throws ServletException, IOException {
-        // No se agrega header Authorization
-
         filter.doFilterInternal(request, response, filterChain);
 
         assertNull(SecurityContextHolder.getContext().getAuthentication());

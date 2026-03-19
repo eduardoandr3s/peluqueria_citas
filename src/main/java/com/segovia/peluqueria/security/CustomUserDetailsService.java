@@ -1,7 +1,7 @@
 package com.segovia.peluqueria.security;
 
-import com.segovia.peluqueria.model.Usuario;
-import com.segovia.peluqueria.repository.UsuarioRepository;
+import com.segovia.peluqueria.usuario.Usuario;
+import com.segovia.peluqueria.usuario.UsuarioRepository;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;

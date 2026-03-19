@@ -19,7 +19,6 @@ public class JwtService {
     @Value("${jwt.expiration}")
     private long expiration;
 
-    // Genera un token JWT con el email, rol e ID del usuario
     public String generarToken(String email, String rol, Integer idUsuario) {
         return Jwts.builder()
                 .subject(email)
@@ -31,22 +30,18 @@ public class JwtService {
                 .compact();
     }
 
-    // Extrae el email (subject) del token
     public String extraerEmail(String token) {
         return extraerClaims(token).getSubject();
     }
 
-    // Extrae el rol del token
     public String extraerRol(String token) {
         return extraerClaims(token).get("rol", String.class);
     }
 
-    // Extrae el ID del usuario del token
     public Integer extraerIdUsuario(String token) {
         return extraerClaims(token).get("idUsuario", Integer.class);
     }
 
-    // Valida que el token no haya expirado y que el email coincida
     public boolean esTokenValido(String token, String email) {
         String emailToken = extraerEmail(token);
         return emailToken.equals(email) && !esTokenExpirado(token);

@@ -11,10 +11,9 @@ class JwtServiceTest {
 
     private JwtService jwtService;
 
-    // Clave de 256 bits (32 caracteres) para HMAC-SHA256
     private static final String TEST_SECRET = "claveSecretaDePruebaConAlMenos32Caracteres!";
-    private static final long TEST_EXPIRATION = 86400000L; // 24 horas
-    private static final long EXPIRED_EXPIRATION = 0L; // expira inmediatamente
+    private static final long TEST_EXPIRATION = 86400000L;
+    private static final long EXPIRED_EXPIRATION = 0L;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -23,14 +22,11 @@ class JwtServiceTest {
         setField(jwtService, "expiration", TEST_EXPIRATION);
     }
 
-    // Inyecta valores en campos privados (simula @Value de Spring)
     private void setField(Object target, String fieldName, Object value) throws Exception {
         Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);
         field.set(target, value);
     }
-
-    // --- generarToken y extraer datos ---
 
     @Test
     void generarToken_yExtraerEmail_correcto() {
@@ -59,8 +55,6 @@ class JwtServiceTest {
         assertEquals(42, idUsuario);
     }
 
-    // --- validacion ---
-
     @Test
     void tokenValido_conEmailCorrecto_retornaTrue() {
         String token = jwtService.generarToken("carlos@test.com", "USER", 1);
@@ -77,14 +71,12 @@ class JwtServiceTest {
 
     @Test
     void tokenExpirado_noEsValido() throws Exception {
-        // Crear un JwtService con expiracion 0 (expira inmediatamente)
         JwtService jwtServiceExpirado = new JwtService();
         setField(jwtServiceExpirado, "secret", TEST_SECRET);
         setField(jwtServiceExpirado, "expiration", EXPIRED_EXPIRATION);
 
         String token = jwtServiceExpirado.generarToken("carlos@test.com", "USER", 1);
 
-        // Esperar un momento para asegurar que expire
         Thread.sleep(10);
 
         assertThrows(Exception.class,
@@ -95,7 +87,6 @@ class JwtServiceTest {
     void tokenManipulado_lanzaExcepcion() {
         String token = jwtService.generarToken("carlos@test.com", "USER", 1);
 
-        // Manipular el token (cambiar un caracter en el payload)
         String tokenManipulado = token.substring(0, token.length() - 5) + "XXXXX";
 
         assertThrows(Exception.class,
@@ -104,14 +95,12 @@ class JwtServiceTest {
 
     @Test
     void tokenConOtraFirma_lanzaExcepcion() throws Exception {
-        // Generar token con una clave diferente
         JwtService otroJwtService = new JwtService();
         setField(otroJwtService, "secret", "otraClaveSecretaMuyDiferenteYLarga!!");
         setField(otroJwtService, "expiration", TEST_EXPIRATION);
 
         String tokenConOtraFirma = otroJwtService.generarToken("carlos@test.com", "USER", 1);
 
-        // Intentar validar con la clave original
         assertThrows(Exception.class,
                 () -> jwtService.esTokenValido(tokenConOtraFirma, "carlos@test.com"));
     }
