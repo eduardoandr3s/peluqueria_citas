@@ -11,7 +11,6 @@ import com.segovia.peluqueria.model.Usuario;
 import com.segovia.peluqueria.repository.CitaRepository;
 import com.segovia.peluqueria.repository.ServicioRepository;
 import com.segovia.peluqueria.repository.UsuarioRepository;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.DayOfWeek;
@@ -25,14 +24,17 @@ public class CitaService {
     private static final LocalTime HORA_APERTURA = LocalTime.of(9, 0);
     private static final LocalTime HORA_CIERRE = LocalTime.of(20, 0);
 
-    @Autowired
-    private CitaRepository citaRepository;
+    private final CitaRepository citaRepository;
+    private final UsuarioRepository usuarioRepository;
+    private final ServicioRepository servicioRepository;
 
-    @Autowired
-    private UsuarioRepository usuarioRepository;
-
-    @Autowired
-    private ServicioRepository servicioRepository;
+    public CitaService(CitaRepository citaRepository,
+                       UsuarioRepository usuarioRepository,
+                       ServicioRepository servicioRepository) {
+        this.citaRepository = citaRepository;
+        this.usuarioRepository = usuarioRepository;
+        this.servicioRepository = servicioRepository;
+    }
 
     public List<Cita> listarCitas() {
         return citaRepository.findAll();

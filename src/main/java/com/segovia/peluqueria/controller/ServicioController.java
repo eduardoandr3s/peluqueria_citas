@@ -5,7 +5,6 @@ import com.segovia.peluqueria.dto.ServicioUpdateDTO;
 import com.segovia.peluqueria.model.Servicio;
 import com.segovia.peluqueria.service.ServicioService;
 import jakarta.validation.Valid;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,8 +14,11 @@ import java.util.List;
 @RequestMapping("/api/servicios")
 public class ServicioController {
 
-    @Autowired
-    private ServicioService servicioService;
+    private final ServicioService servicioService;
+
+    public ServicioController(ServicioService servicioService) {
+        this.servicioService = servicioService;
+    }
 
     @GetMapping
     public List<Servicio> listarServicios() {

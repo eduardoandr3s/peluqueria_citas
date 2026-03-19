@@ -5,7 +5,6 @@ import com.segovia.peluqueria.dto.UsuarioResponseDTO;
 import com.segovia.peluqueria.dto.UsuarioUpdateDTO;
 import com.segovia.peluqueria.service.UsuarioService;
 import jakarta.validation.Valid;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,9 +14,11 @@ import java.util.List;
 @RequestMapping("/api/usuarios")
 public class UsuarioController {
 
-    // Inyección de UsuarioService para manejar la lógica de negocio relacionada con usuarios
-    @Autowired
-    private UsuarioService usuarioService;
+    private final UsuarioService usuarioService;
+
+    public UsuarioController(UsuarioService usuarioService) {
+        this.usuarioService = usuarioService;
+    }
 
     // Endpoint para listar todos los usuarios
     @GetMapping

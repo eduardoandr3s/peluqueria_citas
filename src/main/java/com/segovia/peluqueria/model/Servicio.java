@@ -2,14 +2,16 @@ package com.segovia.peluqueria.model;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import java.math.BigDecimal;
 
-@Data // Genera getters, setters, toString, equals y hashCode automáticamente
-@NoArgsConstructor // Genera un constructor sin argumentos
-@AllArgsConstructor // Genera un constructor con todos los argumentos
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 @Entity // Marca esta clase como una entidad de JPA
 @Table(name = "servicios") // Especifica el nombre de la tabla en la base de datos
 public class Servicio {

@@ -5,7 +5,6 @@ import com.segovia.peluqueria.dto.CitaUpdateDTO;
 import com.segovia.peluqueria.model.Cita;
 import com.segovia.peluqueria.service.CitaService;
 import jakarta.validation.Valid;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,8 +14,11 @@ import java.util.List;
 @RequestMapping("/api/citas")
 public class CitaController {
 
-    @Autowired
-    private CitaService citaService;
+    private final CitaService citaService;
+
+    public CitaController(CitaService citaService) {
+        this.citaService = citaService;
+    }
 
     @GetMapping
     public List<Cita> listarCitas() {

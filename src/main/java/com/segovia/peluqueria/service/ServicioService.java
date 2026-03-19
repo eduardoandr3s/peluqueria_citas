@@ -5,15 +5,18 @@ import com.segovia.peluqueria.dto.ServicioUpdateDTO;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.model.Servicio;
 import com.segovia.peluqueria.repository.ServicioRepository;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 
 @Service
 public class ServicioService {
-    @Autowired
-    private ServicioRepository servicioRepository;
+
+    private final ServicioRepository servicioRepository;
+
+    public ServicioService(ServicioRepository servicioRepository) {
+        this.servicioRepository = servicioRepository;
+    }
 
     // Listar solo los servicios activos
     public List<Servicio> listarServicios() {
