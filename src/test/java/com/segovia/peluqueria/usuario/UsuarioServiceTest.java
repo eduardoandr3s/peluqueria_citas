@@ -178,4 +178,55 @@ class UsuarioServiceTest {
         assertThrows(ResourceNotFoundException.class,
                 () -> usuarioService.eliminarUsuario(99));
     }
+
+    @Test
+    void cambiarRol_promueveUsuarioAAdmin_exitoso() {
+        Usuario usuario = crearUsuarioBase();
+        usuario.setRol(Rol.USER);
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(usuario));
+        when(usuarioRepository.save(any(Usuario.class))).thenAnswer(i -> i.getArgument(0));
+
+        UsuarioResponseDTO resultado = usuarioService.cambiarRol(1, Rol.ADMIN);
+
+        assertEquals(Rol.ADMIN, resultado.getRol());
+        assertEquals(Rol.ADMIN, usuario.getRol());
+        verify(usuarioRepository).save(usuario);
+        verify(usuarioRepository, never()).countByRolAndActivoTrue(any());
+    }
+
+    @Test
+    void cambiarRol_degradaAdmin_conOtrosAdmins_exitoso() {
+        Usuario usuario = crearUsuarioBase();
+        usuario.setRol(Rol.ADMIN);
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(usuario));
+        when(usuarioRepository.countByRolAndActivoTrue(Rol.ADMIN)).thenReturn(2L);
+        when(usuarioRepository.save(any(Usuario.class))).thenAnswer(i -> i.getArgument(0));
+
+        UsuarioResponseDTO resultado = usuarioService.cambiarRol(1, Rol.USER);
+
+        assertEquals(Rol.USER, resultado.getRol());
+        verify(usuarioRepository).save(usuario);
+    }
+
+    @Test
+    void cambiarRol_degradaUltimoAdmin_lanzaExcepcion() {
+        Usuario usuario = crearUsuarioBase();
+        usuario.setRol(Rol.ADMIN);
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(usuario));
+        when(usuarioRepository.countByRolAndActivoTrue(Rol.ADMIN)).thenReturn(1L);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> usuarioService.cambiarRol(1, Rol.USER));
+        assertTrue(ex.getMessage().contains("único administrador"));
+        verify(usuarioRepository, never()).save(any());
+    }
+
+    @Test
+    void cambiarRol_usuarioNoExiste_lanzaExcepcion() {
+        when(usuarioRepository.findById(99)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> usuarioService.cambiarRol(99, Rol.ADMIN));
+        verify(usuarioRepository, never()).save(any());
+    }
 }

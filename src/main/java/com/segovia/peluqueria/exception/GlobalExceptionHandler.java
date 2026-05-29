@@ -1,6 +1,7 @@
 package com.segovia.peluqueria.exception;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -32,6 +33,15 @@ public class GlobalExceptionHandler {
     public Map<String, String> manejarNoEncontrado(ResourceNotFoundException ex) {
         Map<String, String> error = new HashMap<>();
         error.put("error", ex.getMessage());
+        return error;
+    }
+
+    // Captura JSON mal formado o valores no validos para un tipo (ej. un rol inexistente en el enum)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public Map<String, String> manejarJsonInvalido(HttpMessageNotReadableException ex) {
+        Map<String, String> error = new HashMap<>();
+        error.put("error", "El cuerpo de la peticion es invalido o contiene un valor no permitido.");
         return error;
     }
 

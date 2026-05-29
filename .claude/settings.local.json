@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(./mvnw compile:*)"
+      "Bash(./mvnw compile:*)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\eduar\\\\Documents\\\\peluqueria\" -Force)",
+      "Bash(Select-Object Name, FullName)",
+      "Bash(git fetch *)"
     ]
   }
 }

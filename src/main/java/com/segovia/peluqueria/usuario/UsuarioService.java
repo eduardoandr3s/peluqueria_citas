@@ -61,6 +61,7 @@ public class UsuarioService {
         dto.setEmail(usuario.getEmail());
         dto.setTelefono(usuario.getTelefono());
         dto.setFechaRegistro(usuario.getFechaRegistro());
+        dto.setRol(usuario.getRol());
         return dto;
     }
 
@@ -95,6 +96,21 @@ public class UsuarioService {
         }
 
         Usuario usuarioGuardado = usuarioRepository.save(usuarioExistente);
+
+        return mapearAResponseDTO(usuarioGuardado);
+    }
+
+    public UsuarioResponseDTO cambiarRol(Integer id, Rol nuevoRol) {
+        Usuario usuario = obtenerEntidadPorId(id);
+
+        // Evita dejar el sistema sin administradores: no se puede degradar al último ADMIN activo.
+        if (usuario.getRol() == Rol.ADMIN && nuevoRol == Rol.USER
+                && usuarioRepository.countByRolAndActivoTrue(Rol.ADMIN) <= 1) {
+            throw new IllegalArgumentException("No se puede quitar el rol ADMIN al único administrador activo.");
+        }
+
+        usuario.setRol(nuevoRol);
+        Usuario usuarioGuardado = usuarioRepository.save(usuario);
 
         return mapearAResponseDTO(usuarioGuardado);
     }

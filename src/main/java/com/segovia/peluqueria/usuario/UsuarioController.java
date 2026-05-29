@@ -1,5 +1,6 @@
 package com.segovia.peluqueria.usuario;
 
+import com.segovia.peluqueria.usuario.dto.CambiarRolRequestDTO;
 import com.segovia.peluqueria.usuario.dto.UsuarioRequestDTO;
 import com.segovia.peluqueria.usuario.dto.UsuarioResponseDTO;
 import com.segovia.peluqueria.usuario.dto.UsuarioUpdateDTO;
@@ -37,6 +38,11 @@ public class UsuarioController {
     @PutMapping("/{id}")
     public UsuarioResponseDTO actualizarUsuario(@PathVariable Integer id, @Valid @RequestBody UsuarioUpdateDTO request){
         return usuarioService.actualizarUsuario(id, request);
+    }
+
+    @PatchMapping("/{id}/rol")
+    public UsuarioResponseDTO cambiarRol(@PathVariable Integer id, @Valid @RequestBody CambiarRolRequestDTO request){
+        return usuarioService.cambiarRol(id, request.getRol());
     }
 
     @DeleteMapping("/{id}")

@@ -1,5 +1,6 @@
 package com.segovia.peluqueria.usuario.dto;
 
+import com.segovia.peluqueria.usuario.Rol;
 import lombok.Data;
 
 import java.time.LocalDate;
@@ -11,4 +12,5 @@ public class UsuarioResponseDTO {
     private String email;
     private String telefono;
     private LocalDate fechaRegistro;
+    private Rol rol;
 }
