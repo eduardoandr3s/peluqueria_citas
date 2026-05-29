@@ -162,6 +162,7 @@ Para ejecutar los tests:
     * `DB_USERNAME`: Tu usuario de PostgreSQL.
     * `DB_PASSWORD`: Tu contrasena de PostgreSQL.
     * `JWT_SECRET`: Clave secreta para firmar tokens JWT (minimo 32 caracteres).
+    * `CORS_ALLOWED_ORIGINS` *(solo perfil `prod`)*: Origen(es) permitidos para CORS, separados por coma (ej. `https://admin.tu-dominio.com`). En el perfil `dev` no hace falta: ya viene fijado a `http://localhost:4200`. Si no se define en `prod`, usa el fallback `https://admin.tu-dominio.com`.
 
     *(Nota: El perfil `dev` usa `ddl-auto=update`, que crea y actualiza las tablas automaticamente al iniciar.)*
 
@@ -197,6 +198,7 @@ Para ejecutar los tests:
 - [x] Constructor injection y eliminacion de `@Data` en entidades JPA.
 - [x] Reestructuracion de paquetes por dominio (usuario, cita, servicio, auth, security).
 - [x] Suite de 59 unit tests (services, security, controller).
+- [x] Configuracion de CORS por perfil (origenes externalizados a `CORS_ALLOWED_ORIGINS` en prod).
 - [ ] Desarrollo del Frontend interactivo consumiendo esta API.
 
 ---
