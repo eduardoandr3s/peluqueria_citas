@@ -1,9 +1,11 @@
 package com.segovia.peluqueria.cita;
 
 import com.segovia.peluqueria.cita.dto.CitaRequestDTO;
+import com.segovia.peluqueria.cita.dto.CitaResponseDTO;
 import com.segovia.peluqueria.cita.dto.CitaUpdateDTO;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -19,28 +21,28 @@ public class CitaController {
     }
 
     @GetMapping
-    public List<Cita> listarCitas() {
-        return citaService.listarCitas();
+    public List<CitaResponseDTO> listarCitas(Authentication authentication) {
+        return citaService.listarCitas(authentication.getName());
     }
 
     @PostMapping
-    public Cita agendarCita(@Valid @RequestBody CitaRequestDTO request) {
-        return citaService.agendarCita(request);
+    public CitaResponseDTO agendarCita(@Valid @RequestBody CitaRequestDTO request, Authentication authentication) {
+        return citaService.agendarCita(request, authentication.getName());
     }
 
     @GetMapping("/{id}")
-    public Cita obtenerCitaPorId(@PathVariable Integer id) {
-        return citaService.obtenerCitaPorId(id);
+    public CitaResponseDTO obtenerCitaPorId(@PathVariable Integer id, Authentication authentication) {
+        return citaService.obtenerCitaPorId(id, authentication.getName());
     }
 
     @PutMapping("/{id}")
-    public Cita actualizarCita(@PathVariable Integer id, @Valid @RequestBody CitaUpdateDTO request) {
-        return citaService.actualizarCita(id, request);
+    public CitaResponseDTO actualizarCita(@PathVariable Integer id, @Valid @RequestBody CitaUpdateDTO request, Authentication authentication) {
+        return citaService.actualizarCita(id, request, authentication.getName());
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> eliminarCita(@PathVariable Integer id) {
-        citaService.eliminarCita(id);
+    public ResponseEntity<Void> eliminarCita(@PathVariable Integer id, Authentication authentication) {
+        citaService.eliminarCita(id, authentication.getName());
         return ResponseEntity.noContent().build();
     }
 }

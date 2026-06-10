@@ -1,7 +1,10 @@
 package com.segovia.peluqueria.exception;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -13,6 +16,8 @@ import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -45,10 +50,20 @@ public class GlobalExceptionHandler {
         return error;
     }
 
+    // Captura cuando un usuario intenta acceder a un recurso que no le pertenece
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    @ExceptionHandler(AccessDeniedException.class)
+    public Map<String, String> manejarAccesoDenegado(AccessDeniedException ex) {
+        Map<String, String> error = new HashMap<>();
+        error.put("error", ex.getMessage());
+        return error;
+    }
+
     // Captura cuando se intenta agendar una cita en un horario ya ocupado
     @ResponseStatus(HttpStatus.CONFLICT)
     @ExceptionHandler(ConflictoHorarioException.class)
     public Map<String, String> manejarConflictoHorario(ConflictoHorarioException ex) {
+        log.warn("Conflicto de horario: {}", ex.getMessage());
         Map<String, String> error = new HashMap<>();
         error.put("error", ex.getMessage());
         return error;
@@ -76,6 +91,7 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     @ExceptionHandler(Exception.class)
     public Map<String, String> manejarErrorGenerico(Exception ex) {
+        log.error("Error interno no controlado", ex);
         Map<String, String> error = new HashMap<>();
         error.put("error", "Ha ocurrido un error interno en el servidor. Por favor intente mas tarde.");
         return error;

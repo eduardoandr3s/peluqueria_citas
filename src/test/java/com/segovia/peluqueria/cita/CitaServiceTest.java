@@ -1,15 +1,18 @@
 package com.segovia.peluqueria.cita;
 
 import com.segovia.peluqueria.cita.dto.CitaRequestDTO;
+import com.segovia.peluqueria.cita.dto.CitaResponseDTO;
 import com.segovia.peluqueria.cita.dto.CitaUpdateDTO;
 import com.segovia.peluqueria.exception.ConflictoHorarioException;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.servicio.Servicio;
 import com.segovia.peluqueria.servicio.ServicioRepository;
+import com.segovia.peluqueria.usuario.Rol;
 import com.segovia.peluqueria.usuario.Usuario;
 import com.segovia.peluqueria.usuario.UsuarioRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.access.AccessDeniedException;
 
 import java.math.BigDecimal;
 import java.time.DayOfWeek;
@@ -23,6 +26,8 @@ import static org.mockito.Mockito.*;
 
 class CitaServiceTest {
 
+    private static final String EMAIL_ADMIN = "admin@test.com";
+
     private CitaRepository citaRepository;
     private UsuarioRepository usuarioRepository;
     private ServicioRepository servicioRepository;
@@ -34,12 +39,22 @@ class CitaServiceTest {
         usuarioRepository = mock(UsuarioRepository.class);
         servicioRepository = mock(ServicioRepository.class);
         citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository);
+
+        // Por defecto, el usuario autenticado es un ADMIN (acceso total).
+        Usuario admin = new Usuario();
+        admin.setIdUsuario(99);
+        admin.setEmail(EMAIL_ADMIN);
+        admin.setRol(Rol.ADMIN);
+        admin.setActivo(true);
+        when(usuarioRepository.findByEmail(EMAIL_ADMIN)).thenReturn(Optional.of(admin));
     }
 
     private Usuario crearUsuarioActivo() {
         Usuario usuario = new Usuario();
         usuario.setIdUsuario(1);
         usuario.setNombre("Carlos");
+        usuario.setEmail("carlos@test.com");
+        usuario.setRol(Rol.USER);
         usuario.setActivo(true);
         return usuario;
     }
@@ -83,12 +98,12 @@ class CitaServiceTest {
             return c;
         });
 
-        Cita resultado = citaService.agendarCita(request);
+        CitaResponseDTO resultado = citaService.agendarCita(request, EMAIL_ADMIN);
 
         assertNotNull(resultado.getIdCita());
         assertEquals(EstadoCita.PENDIENTE, resultado.getEstado());
-        assertEquals(usuario, resultado.getUsuario());
-        assertEquals(servicio, resultado.getServicio());
+        assertEquals(usuario.getIdUsuario(), resultado.getUsuario().getIdUsuario());
+        assertEquals(servicio.getIdServicio(), resultado.getServicio().getIdServicio());
         verify(citaRepository).save(any(Cita.class));
     }
 
@@ -98,7 +113,7 @@ class CitaServiceTest {
         when(usuarioRepository.findById(1)).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class,
-                () -> citaService.agendarCita(request));
+                () -> citaService.agendarCita(request, EMAIL_ADMIN));
     }
 
     @Test
@@ -110,7 +125,7 @@ class CitaServiceTest {
         when(usuarioRepository.findById(1)).thenReturn(Optional.of(usuario));
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> citaService.agendarCita(request));
+                () -> citaService.agendarCita(request, EMAIL_ADMIN));
         assertTrue(ex.getMessage().contains("usuario inactivo"));
     }
 
@@ -123,7 +138,7 @@ class CitaServiceTest {
         when(servicioRepository.findById(1)).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class,
-                () -> citaService.agendarCita(request));
+                () -> citaService.agendarCita(request, EMAIL_ADMIN));
     }
 
     @Test
@@ -137,7 +152,7 @@ class CitaServiceTest {
         when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> citaService.agendarCita(request));
+                () -> citaService.agendarCita(request, EMAIL_ADMIN));
         assertTrue(ex.getMessage().contains("servicio inactivo"));
     }
 
@@ -153,7 +168,7 @@ class CitaServiceTest {
         when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> citaService.agendarCita(request));
+                () -> citaService.agendarCita(request, EMAIL_ADMIN));
         assertTrue(ex.getMessage().contains("pasado"));
     }
 
@@ -171,7 +186,7 @@ class CitaServiceTest {
         when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> citaService.agendarCita(request));
+                () -> citaService.agendarCita(request, EMAIL_ADMIN));
         assertTrue(ex.getMessage().contains("domingos"));
     }
 
@@ -187,7 +202,7 @@ class CitaServiceTest {
         when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> citaService.agendarCita(request));
+                () -> citaService.agendarCita(request, EMAIL_ADMIN));
         assertTrue(ex.getMessage().contains("antes de las"));
     }
 
@@ -203,7 +218,7 @@ class CitaServiceTest {
         when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> citaService.agendarCita(request));
+                () -> citaService.agendarCita(request, EMAIL_ADMIN));
         assertTrue(ex.getMessage().contains("despues de las"));
     }
 
@@ -218,7 +233,32 @@ class CitaServiceTest {
         when(citaRepository.contarConflictos(any(), any())).thenReturn(1);
 
         assertThrows(ConflictoHorarioException.class,
-                () -> citaService.agendarCita(request));
+                () -> citaService.agendarCita(request, EMAIL_ADMIN));
+    }
+
+    @Test
+    void agendarCita_comoUser_ignoraUsuarioIdAjeno() {
+        // Carlos (USER, id=1) intenta agendar enviando usuarioId=2 (ajeno): debe forzarse a su propio id.
+        Usuario carlos = crearUsuarioActivo();
+        Servicio servicio = crearServicioActivo();
+
+        CitaRequestDTO request = crearRequestValido();
+        request.setUsuarioId(2);
+
+        when(usuarioRepository.findByEmail("carlos@test.com")).thenReturn(Optional.of(carlos));
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(carlos));
+        when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
+        when(citaRepository.contarConflictos(any(), any())).thenReturn(0);
+        when(citaRepository.save(any(Cita.class))).thenAnswer(i -> {
+            Cita c = i.getArgument(0);
+            c.setIdCita(1);
+            return c;
+        });
+
+        CitaResponseDTO resultado = citaService.agendarCita(request, "carlos@test.com");
+
+        assertEquals(1, resultado.getUsuario().getIdUsuario());
+        verify(usuarioRepository, never()).findById(2);
     }
 
     @Test
@@ -228,7 +268,7 @@ class CitaServiceTest {
         cita.setEstado(EstadoCita.PENDIENTE);
         when(citaRepository.findById(1)).thenReturn(Optional.of(cita));
 
-        Cita resultado = citaService.obtenerCitaPorId(1);
+        CitaResponseDTO resultado = citaService.obtenerCitaPorId(1, EMAIL_ADMIN);
 
         assertEquals(1, resultado.getIdCita());
     }
@@ -238,11 +278,43 @@ class CitaServiceTest {
         when(citaRepository.findById(99)).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class,
-                () -> citaService.obtenerCitaPorId(99));
+                () -> citaService.obtenerCitaPorId(99, EMAIL_ADMIN));
     }
 
     @Test
-    void listarCitas_devuelveLista() {
+    void obtenerCitaPorId_propia_noAdmin_exitoso() {
+        Usuario carlos = crearUsuarioActivo();
+        Cita cita = new Cita();
+        cita.setIdCita(1);
+        cita.setEstado(EstadoCita.PENDIENTE);
+        cita.setUsuario(carlos);
+
+        when(usuarioRepository.findByEmail("carlos@test.com")).thenReturn(Optional.of(carlos));
+        when(citaRepository.findById(1)).thenReturn(Optional.of(cita));
+
+        CitaResponseDTO resultado = citaService.obtenerCitaPorId(1, "carlos@test.com");
+
+        assertEquals(1, resultado.getIdCita());
+    }
+
+    @Test
+    void obtenerCitaPorId_ajena_noAdmin_lanzaAccessDenied() {
+        Usuario carlos = crearUsuarioActivo();
+        Usuario otro = new Usuario();
+        otro.setIdUsuario(2);
+        Cita cita = new Cita();
+        cita.setIdCita(1);
+        cita.setUsuario(otro);
+
+        when(usuarioRepository.findByEmail("carlos@test.com")).thenReturn(Optional.of(carlos));
+        when(citaRepository.findById(1)).thenReturn(Optional.of(cita));
+
+        assertThrows(AccessDeniedException.class,
+                () -> citaService.obtenerCitaPorId(1, "carlos@test.com"));
+    }
+
+    @Test
+    void listarCitas_comoAdmin_devuelveTodas() {
         Cita c1 = new Cita();
         c1.setIdCita(1);
         Cita c2 = new Cita();
@@ -250,9 +322,28 @@ class CitaServiceTest {
 
         when(citaRepository.findAll()).thenReturn(List.of(c1, c2));
 
-        List<Cita> resultado = citaService.listarCitas();
+        List<CitaResponseDTO> resultado = citaService.listarCitas(EMAIL_ADMIN);
 
         assertEquals(2, resultado.size());
+        verify(citaRepository).findAll();
+        verify(citaRepository, never()).findByUsuarioIdUsuario(any());
+    }
+
+    @Test
+    void listarCitas_comoUser_soloLasSuyas() {
+        Usuario carlos = crearUsuarioActivo();
+        Cita c1 = new Cita();
+        c1.setIdCita(1);
+        c1.setUsuario(carlos);
+
+        when(usuarioRepository.findByEmail("carlos@test.com")).thenReturn(Optional.of(carlos));
+        when(citaRepository.findByUsuarioIdUsuario(1)).thenReturn(List.of(c1));
+
+        List<CitaResponseDTO> resultado = citaService.listarCitas("carlos@test.com");
+
+        assertEquals(1, resultado.size());
+        verify(citaRepository).findByUsuarioIdUsuario(1);
+        verify(citaRepository, never()).findAll();
     }
 
     @Test
@@ -269,7 +360,7 @@ class CitaServiceTest {
         CitaUpdateDTO request = new CitaUpdateDTO();
         request.setEstado(EstadoCita.CONFIRMADA);
 
-        Cita resultado = citaService.actualizarCita(1, request);
+        CitaResponseDTO resultado = citaService.actualizarCita(1, request, EMAIL_ADMIN);
 
         assertEquals(EstadoCita.CONFIRMADA, resultado.getEstado());
     }
@@ -290,7 +381,7 @@ class CitaServiceTest {
         CitaUpdateDTO request = new CitaUpdateDTO();
         request.setFechaHora(proximoLunesALas(14, 0));
 
-        Cita resultado = citaService.actualizarCita(1, request);
+        CitaResponseDTO resultado = citaService.actualizarCita(1, request, EMAIL_ADMIN);
 
         assertEquals(proximoLunesALas(14, 0), resultado.getFechaHora());
         verify(citaRepository).contarConflictosExcluyendo(any(), any(), eq(1));
@@ -303,7 +394,7 @@ class CitaServiceTest {
         CitaUpdateDTO request = new CitaUpdateDTO();
 
         assertThrows(ResourceNotFoundException.class,
-                () -> citaService.actualizarCita(99, request));
+                () -> citaService.actualizarCita(99, request, EMAIL_ADMIN));
     }
 
     @Test
@@ -312,7 +403,7 @@ class CitaServiceTest {
         cita.setIdCita(1);
         when(citaRepository.findById(1)).thenReturn(Optional.of(cita));
 
-        citaService.eliminarCita(1);
+        citaService.eliminarCita(1, EMAIL_ADMIN);
 
         verify(citaRepository).delete(cita);
     }
@@ -322,6 +413,23 @@ class CitaServiceTest {
         when(citaRepository.findById(99)).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class,
-                () -> citaService.eliminarCita(99));
+                () -> citaService.eliminarCita(99, EMAIL_ADMIN));
+    }
+
+    @Test
+    void eliminarCita_ajena_noAdmin_lanzaAccessDenied() {
+        Usuario carlos = crearUsuarioActivo();
+        Usuario otro = new Usuario();
+        otro.setIdUsuario(2);
+        Cita cita = new Cita();
+        cita.setIdCita(1);
+        cita.setUsuario(otro);
+
+        when(usuarioRepository.findByEmail("carlos@test.com")).thenReturn(Optional.of(carlos));
+        when(citaRepository.findById(1)).thenReturn(Optional.of(cita));
+
+        assertThrows(AccessDeniedException.class,
+                () -> citaService.eliminarCita(1, "carlos@test.com"));
+        verify(citaRepository, never()).delete(any());
     }
 }

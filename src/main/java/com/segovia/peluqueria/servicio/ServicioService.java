@@ -2,8 +2,10 @@ package com.segovia.peluqueria.servicio;
 
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.servicio.dto.ServicioRequestDTO;
+import com.segovia.peluqueria.servicio.dto.ServicioResponseDTO;
 import com.segovia.peluqueria.servicio.dto.ServicioUpdateDTO;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -16,27 +18,37 @@ public class ServicioService {
         this.servicioRepository = servicioRepository;
     }
 
-    public List<Servicio> listarServicios() {
-        return servicioRepository.findByActivoTrue();
+    @Transactional(readOnly = true)
+    public List<ServicioResponseDTO> listarServicios() {
+        return servicioRepository.findByActivoTrue().stream()
+                .map(ServicioResponseDTO::desde)
+                .toList();
     }
 
-    public Servicio crearServicio(ServicioRequestDTO request) {
+    @Transactional
+    public ServicioResponseDTO crearServicio(ServicioRequestDTO request) {
         Servicio servicio = new Servicio();
         servicio.setNombre(request.getNombre());
         servicio.setDescripcion(request.getDescripcion());
         servicio.setPrecio(request.getPrecio());
         servicio.setDuracion(request.getDuracion());
-        return servicioRepository.save(servicio);
+        return ServicioResponseDTO.desde(servicioRepository.save(servicio));
     }
 
-    public Servicio obtenerServicioPorId(Integer id) {
+    private Servicio obtenerEntidadPorId(Integer id) {
         return servicioRepository.findById(id)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Servicio no encontrado con id: " + id));
     }
 
-    public Servicio actualizarServicio(Integer id, ServicioUpdateDTO request) {
-        Servicio servicioExistente = obtenerServicioPorId(id);
+    @Transactional(readOnly = true)
+    public ServicioResponseDTO obtenerServicioPorId(Integer id) {
+        return ServicioResponseDTO.desde(obtenerEntidadPorId(id));
+    }
+
+    @Transactional
+    public ServicioResponseDTO actualizarServicio(Integer id, ServicioUpdateDTO request) {
+        Servicio servicioExistente = obtenerEntidadPorId(id);
 
         if (request.getNombre() != null && !request.getNombre().isEmpty()) {
             servicioExistente.setNombre(request.getNombre());
@@ -51,11 +63,12 @@ public class ServicioService {
             servicioExistente.setDuracion(request.getDuracion());
         }
 
-        return servicioRepository.save(servicioExistente);
+        return ServicioResponseDTO.desde(servicioRepository.save(servicioExistente));
     }
 
+    @Transactional
     public void eliminarServicio(Integer id) {
-        Servicio servicioExistente = obtenerServicioPorId(id);
+        Servicio servicioExistente = obtenerEntidadPorId(id);
         servicioExistente.setActivo(false);
         servicioRepository.save(servicioExistente);
     }

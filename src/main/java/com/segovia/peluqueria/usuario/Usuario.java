@@ -1,5 +1,6 @@
 package com.segovia.peluqueria.usuario;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -29,6 +30,7 @@ public class Usuario {
     @Column(length = 15)
     private String telefono;
 
+    @JsonIgnore
     @Column(length = 255, nullable = false)
     private String password;
 

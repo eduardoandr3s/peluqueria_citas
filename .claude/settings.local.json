@@ -4,7 +4,11 @@
       "Bash(./mvnw compile:*)",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\eduar\\\\Documents\\\\peluqueria\" -Force)",
       "Bash(Select-Object Name, FullName)",
-      "Bash(git fetch *)"
+      "Bash(git fetch *)",
+      "PowerShell(Get-ChildItem ..\\\\peluqueria_frontend\\\\peluqueria-frontend\\\\src -Recurse -File | Where-Object { $_.FullName -notmatch 'node_modules' } | ForEach-Object { $_.FullName.Replace\\('C:\\\\Users\\\\eduar\\\\Documents\\\\peluqueria_frontend\\\\peluqueria-frontend\\\\src\\\\',''\\) })",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\eduar\\\\Documents\\\\peluqueria_frontend\\\\peluqueria-frontend\" -Force)",
+      "Bash(xargs grep -l \"record \")",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\eduar\\\\Documents\\\\peluqueria_frontend\\\\peluqueria-frontend\" -Force | Select-Object Name, @{Name=\"Type\";Expression={if\\($_.PSIsContainer\\){\"DIR\"}else{\"FILE\"}}} | Format-Table -AutoSize)"
     ]
   }
 }

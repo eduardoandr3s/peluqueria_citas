@@ -4,15 +4,20 @@ import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.usuario.dto.UsuarioRequestDTO;
 import com.segovia.peluqueria.usuario.dto.UsuarioResponseDTO;
 import com.segovia.peluqueria.usuario.dto.UsuarioUpdateDTO;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 
 @Service
 public class UsuarioService {
+
+    private static final Logger log = LoggerFactory.getLogger(UsuarioService.class);
 
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
@@ -23,17 +28,14 @@ public class UsuarioService {
         this.passwordEncoder = passwordEncoder;
     }
 
+    @Transactional(readOnly = true)
     public List<UsuarioResponseDTO> listarUsuarios() {
-        List<Usuario> usuarios = usuarioRepository.findByActivoTrue();
-        List<UsuarioResponseDTO> respuesta = new ArrayList<>();
-
-        for (Usuario u : usuarios){
-            respuesta.add(mapearAResponseDTO(u));
-        }
-
-        return respuesta;
+        return usuarioRepository.findByActivoTrue().stream()
+                .map(UsuarioResponseDTO::desde)
+                .toList();
     }
 
+    @Transactional
     public UsuarioResponseDTO crearUsuario(UsuarioRequestDTO request){
         if (usuarioRepository.existsByEmail(request.getEmail())) {
             throw new IllegalArgumentException("Ya existe un usuario registrado con el email: " + request.getEmail());
@@ -51,18 +53,7 @@ public class UsuarioService {
 
         Usuario usuarioGuardado = usuarioRepository.save(nuevoUsuario);
 
-        return mapearAResponseDTO(usuarioGuardado);
-    }
-
-    private UsuarioResponseDTO mapearAResponseDTO(Usuario usuario) {
-        UsuarioResponseDTO dto = new UsuarioResponseDTO();
-        dto.setIdUsuario(usuario.getIdUsuario());
-        dto.setNombre(usuario.getNombre());
-        dto.setEmail(usuario.getEmail());
-        dto.setTelefono(usuario.getTelefono());
-        dto.setFechaRegistro(usuario.getFechaRegistro());
-        dto.setRol(usuario.getRol());
-        return dto;
+        return UsuarioResponseDTO.desde(usuarioGuardado);
     }
 
     private Usuario obtenerEntidadPorId(Integer id){
@@ -70,12 +61,26 @@ public class UsuarioService {
                 .orElseThrow(()-> new ResourceNotFoundException("Usuario no encontrado con id: " + id));
     }
 
-    public UsuarioResponseDTO obtenerUsuarioPorId(Integer id){
-        Usuario usuario = obtenerEntidadPorId(id);
-        return mapearAResponseDTO(usuario);
+    // Solo el propio usuario o un ADMIN pueden acceder a los datos de un usuario concreto.
+    private void verificarAcceso(Integer idObjetivo, String emailAutenticado) {
+        Usuario actual = usuarioRepository.findByEmail(emailAutenticado)
+                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con email: " + emailAutenticado));
+
+        if (actual.getRol() != Rol.ADMIN && !actual.getIdUsuario().equals(idObjetivo)) {
+            throw new AccessDeniedException("No tienes permiso para acceder a este recurso.");
+        }
     }
 
-    public UsuarioResponseDTO actualizarUsuario(Integer id, UsuarioUpdateDTO request) {
+    @Transactional(readOnly = true)
+    public UsuarioResponseDTO obtenerUsuarioPorId(Integer id, String emailAutenticado){
+        verificarAcceso(id, emailAutenticado);
+        Usuario usuario = obtenerEntidadPorId(id);
+        return UsuarioResponseDTO.desde(usuario);
+    }
+
+    @Transactional
+    public UsuarioResponseDTO actualizarUsuario(Integer id, UsuarioUpdateDTO request, String emailAutenticado) {
+        verificarAcceso(id, emailAutenticado);
         Usuario usuarioExistente = obtenerEntidadPorId(id);
 
         if (request.getNombre() != null && !request.getNombre().isEmpty()) {
@@ -97,9 +102,10 @@ public class UsuarioService {
 
         Usuario usuarioGuardado = usuarioRepository.save(usuarioExistente);
 
-        return mapearAResponseDTO(usuarioGuardado);
+        return UsuarioResponseDTO.desde(usuarioGuardado);
     }
 
+    @Transactional
     public UsuarioResponseDTO cambiarRol(Integer id, Rol nuevoRol) {
         Usuario usuario = obtenerEntidadPorId(id);
 
@@ -109,12 +115,16 @@ public class UsuarioService {
             throw new IllegalArgumentException("No se puede quitar el rol ADMIN al único administrador activo.");
         }
 
+        Rol rolAnterior = usuario.getRol();
         usuario.setRol(nuevoRol);
         Usuario usuarioGuardado = usuarioRepository.save(usuario);
+        log.info("Cambio de rol del usuario id={} ({}): {} -> {}",
+                usuario.getIdUsuario(), usuario.getEmail(), rolAnterior, nuevoRol);
 
-        return mapearAResponseDTO(usuarioGuardado);
+        return UsuarioResponseDTO.desde(usuarioGuardado);
     }
 
+    @Transactional
     public void eliminarUsuario(Integer id){
         Usuario usuarioExistente = obtenerEntidadPorId(id);
         usuarioExistente.setActivo(false);

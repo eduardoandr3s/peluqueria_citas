@@ -6,6 +6,7 @@ import com.segovia.peluqueria.usuario.dto.UsuarioResponseDTO;
 import com.segovia.peluqueria.usuario.dto.UsuarioUpdateDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDate;
@@ -17,6 +18,8 @@ import static org.mockito.Mockito.*;
 
 class UsuarioServiceTest {
 
+    private static final String EMAIL_ADMIN = "admin@test.com";
+
     private UsuarioRepository usuarioRepository;
     private PasswordEncoder passwordEncoder;
     private UsuarioService usuarioService;
@@ -26,6 +29,14 @@ class UsuarioServiceTest {
         usuarioRepository = mock(UsuarioRepository.class);
         passwordEncoder = mock(PasswordEncoder.class);
         usuarioService = new UsuarioService(usuarioRepository, passwordEncoder);
+
+        // Por defecto, el usuario autenticado es un ADMIN (acceso total).
+        Usuario admin = new Usuario();
+        admin.setIdUsuario(99);
+        admin.setEmail(EMAIL_ADMIN);
+        admin.setRol(Rol.ADMIN);
+        admin.setActivo(true);
+        when(usuarioRepository.findByEmail(EMAIL_ADMIN)).thenReturn(Optional.of(admin));
     }
 
     private Usuario crearUsuarioBase() {
@@ -36,6 +47,7 @@ class UsuarioServiceTest {
         usuario.setTelefono("123456789");
         usuario.setPassword("encriptada123");
         usuario.setFechaRegistro(LocalDate.now());
+        usuario.setRol(Rol.USER);
         usuario.setActivo(true);
         return usuario;
     }
@@ -82,7 +94,7 @@ class UsuarioServiceTest {
         Usuario usuario = crearUsuarioBase();
         when(usuarioRepository.findById(1)).thenReturn(Optional.of(usuario));
 
-        UsuarioResponseDTO resultado = usuarioService.obtenerUsuarioPorId(1);
+        UsuarioResponseDTO resultado = usuarioService.obtenerUsuarioPorId(1, EMAIL_ADMIN);
 
         assertEquals("Carlos", resultado.getNombre());
         assertEquals("carlos@test.com", resultado.getEmail());
@@ -93,7 +105,29 @@ class UsuarioServiceTest {
         when(usuarioRepository.findById(99)).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class,
-                () -> usuarioService.obtenerUsuarioPorId(99));
+                () -> usuarioService.obtenerUsuarioPorId(99, EMAIL_ADMIN));
+    }
+
+    @Test
+    void obtenerUsuarioPorId_mismoUsuario_noAdmin_exitoso() {
+        Usuario usuario = crearUsuarioBase();
+        when(usuarioRepository.findByEmail("carlos@test.com")).thenReturn(Optional.of(usuario));
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(usuario));
+
+        UsuarioResponseDTO resultado = usuarioService.obtenerUsuarioPorId(1, "carlos@test.com");
+
+        assertEquals("Carlos", resultado.getNombre());
+    }
+
+    @Test
+    void obtenerUsuarioPorId_otroUsuario_noAdmin_lanzaAccessDenied() {
+        Usuario carlos = crearUsuarioBase();
+        when(usuarioRepository.findByEmail("carlos@test.com")).thenReturn(Optional.of(carlos));
+
+        // Carlos (USER, id=1) intenta acceder al usuario id=2
+        assertThrows(AccessDeniedException.class,
+                () -> usuarioService.obtenerUsuarioPorId(2, "carlos@test.com"));
+        verify(usuarioRepository, never()).findById(2);
     }
 
     @Test
@@ -122,7 +156,7 @@ class UsuarioServiceTest {
         UsuarioUpdateDTO request = new UsuarioUpdateDTO();
         request.setNombre("Carlos Actualizado");
 
-        UsuarioResponseDTO resultado = usuarioService.actualizarUsuario(1, request);
+        UsuarioResponseDTO resultado = usuarioService.actualizarUsuario(1, request, EMAIL_ADMIN);
 
         assertEquals("Carlos Actualizado", resultado.getNombre());
         assertEquals("carlos@test.com", resultado.getEmail());
@@ -139,8 +173,22 @@ class UsuarioServiceTest {
         request.setEmail("otro@test.com");
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> usuarioService.actualizarUsuario(1, request));
+                () -> usuarioService.actualizarUsuario(1, request, EMAIL_ADMIN));
         assertTrue(ex.getMessage().contains("Ya existe otro usuario"));
+    }
+
+    @Test
+    void actualizarUsuario_otroUsuario_noAdmin_lanzaAccessDenied() {
+        Usuario carlos = crearUsuarioBase();
+        when(usuarioRepository.findByEmail("carlos@test.com")).thenReturn(Optional.of(carlos));
+
+        UsuarioUpdateDTO request = new UsuarioUpdateDTO();
+        request.setNombre("Hackeado");
+
+        // Carlos (USER, id=1) intenta modificar al usuario id=2
+        assertThrows(AccessDeniedException.class,
+                () -> usuarioService.actualizarUsuario(2, request, "carlos@test.com"));
+        verify(usuarioRepository, never()).save(any());
     }
 
     @Test
@@ -153,7 +201,7 @@ class UsuarioServiceTest {
         UsuarioUpdateDTO request = new UsuarioUpdateDTO();
         request.setPassword("nuevaPassword");
 
-        usuarioService.actualizarUsuario(1, request);
+        usuarioService.actualizarUsuario(1, request, EMAIL_ADMIN);
 
         assertEquals("nuevaEncriptada", usuario.getPassword());
         verify(passwordEncoder).encode("nuevaPassword");

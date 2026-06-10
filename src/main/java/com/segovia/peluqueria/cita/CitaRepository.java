@@ -5,8 +5,11 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public interface CitaRepository extends JpaRepository<Cita, Integer> {
+
+    List<Cita> findByUsuarioIdUsuario(Integer idUsuario);
 
     @Query(value = """
             SELECT COUNT(*) FROM citas c
