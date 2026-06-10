@@ -2,6 +2,7 @@ package com.segovia.peluqueria.servicio;
 
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.servicio.dto.ServicioRequestDTO;
+import com.segovia.peluqueria.servicio.dto.ServicioResponseDTO;
 import com.segovia.peluqueria.servicio.dto.ServicioUpdateDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,7 +45,7 @@ class ServicioServiceTest {
 
         when(servicioRepository.findByActivoTrue()).thenReturn(List.of(s1, s2));
 
-        List<Servicio> resultado = servicioService.listarServicios();
+        List<ServicioResponseDTO> resultado = servicioService.listarServicios();
 
         assertEquals(2, resultado.size());
         verify(servicioRepository).findByActivoTrue();
@@ -64,7 +65,7 @@ class ServicioServiceTest {
             return s;
         });
 
-        Servicio resultado = servicioService.crearServicio(request);
+        ServicioResponseDTO resultado = servicioService.crearServicio(request);
 
         assertEquals("Corte clasico", resultado.getNombre());
         assertEquals(new BigDecimal("15.00"), resultado.getPrecio());
@@ -77,7 +78,7 @@ class ServicioServiceTest {
         Servicio servicio = crearServicioBase();
         when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
 
-        Servicio resultado = servicioService.obtenerServicioPorId(1);
+        ServicioResponseDTO resultado = servicioService.obtenerServicioPorId(1);
 
         assertEquals("Corte clasico", resultado.getNombre());
     }
@@ -99,7 +100,7 @@ class ServicioServiceTest {
         ServicioUpdateDTO request = new ServicioUpdateDTO();
         request.setNombre("Corte premium");
 
-        Servicio resultado = servicioService.actualizarServicio(1, request);
+        ServicioResponseDTO resultado = servicioService.actualizarServicio(1, request);
 
         assertEquals("Corte premium", resultado.getNombre());
         assertEquals(new BigDecimal("15.00"), resultado.getPrecio());
@@ -118,7 +119,7 @@ class ServicioServiceTest {
         request.setPrecio(new BigDecimal("45.00"));
         request.setDuracion(90);
 
-        Servicio resultado = servicioService.actualizarServicio(1, request);
+        ServicioResponseDTO resultado = servicioService.actualizarServicio(1, request);
 
         assertEquals("Tinte completo", resultado.getNombre());
         assertEquals("Tinte de cabello completo", resultado.getDescripcion());

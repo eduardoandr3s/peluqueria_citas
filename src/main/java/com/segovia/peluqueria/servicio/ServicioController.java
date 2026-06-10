@@ -1,6 +1,7 @@
 package com.segovia.peluqueria.servicio;
 
 import com.segovia.peluqueria.servicio.dto.ServicioRequestDTO;
+import com.segovia.peluqueria.servicio.dto.ServicioResponseDTO;
 import com.segovia.peluqueria.servicio.dto.ServicioUpdateDTO;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -19,22 +20,22 @@ public class ServicioController {
     }
 
     @GetMapping
-    public List<Servicio> listarServicios() {
+    public List<ServicioResponseDTO> listarServicios() {
         return servicioService.listarServicios();
     }
 
     @PostMapping
-    public Servicio crearServicio(@Valid @RequestBody ServicioRequestDTO request) {
+    public ServicioResponseDTO crearServicio(@Valid @RequestBody ServicioRequestDTO request) {
         return servicioService.crearServicio(request);
     }
 
     @GetMapping("/{id}")
-    public Servicio obtenerServicioPorId(@PathVariable Integer id) {
+    public ServicioResponseDTO obtenerServicioPorId(@PathVariable Integer id) {
         return servicioService.obtenerServicioPorId(id);
     }
 
     @PutMapping("/{id}")
-    public Servicio actualizarServicio(@PathVariable Integer id, @Valid @RequestBody ServicioUpdateDTO request) {
+    public ServicioResponseDTO actualizarServicio(@PathVariable Integer id, @Valid @RequestBody ServicioUpdateDTO request) {
         return servicioService.actualizarServicio(id, request);
     }
 

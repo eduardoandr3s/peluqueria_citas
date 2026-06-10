@@ -1,14 +1,20 @@
 package com.segovia.peluqueria.cita;
 
 import com.segovia.peluqueria.cita.dto.CitaRequestDTO;
+import com.segovia.peluqueria.cita.dto.CitaResponseDTO;
 import com.segovia.peluqueria.cita.dto.CitaUpdateDTO;
 import com.segovia.peluqueria.exception.ConflictoHorarioException;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.servicio.Servicio;
 import com.segovia.peluqueria.servicio.ServicioRepository;
+import com.segovia.peluqueria.servicio.dto.ServicioResponseDTO;
+import com.segovia.peluqueria.usuario.Rol;
 import com.segovia.peluqueria.usuario.Usuario;
 import com.segovia.peluqueria.usuario.UsuarioRepository;
+import com.segovia.peluqueria.usuario.dto.UsuarioResponseDTO;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.DayOfWeek;
 import java.time.LocalDateTime;
@@ -33,14 +39,24 @@ public class CitaService {
         this.servicioRepository = servicioRepository;
     }
 
-    public List<Cita> listarCitas() {
-        return citaRepository.findAll();
+    @Transactional(readOnly = true)
+    public List<CitaResponseDTO> listarCitas(String emailAutenticado) {
+        Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
+        // Un ADMIN ve todas las citas; un USER solo las suyas.
+        List<Cita> citas = esAdmin(actual)
+                ? citaRepository.findAll()
+                : citaRepository.findByUsuarioIdUsuario(actual.getIdUsuario());
+        return citas.stream().map(this::mapearAResponseDTO).toList();
     }
 
-    public Cita agendarCita(CitaRequestDTO request) {
+    @Transactional
+    public CitaResponseDTO agendarCita(CitaRequestDTO request, String emailAutenticado) {
+        Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
+        // Un USER solo puede agendar citas para sí mismo; un ADMIN puede agendar para cualquiera.
+        Integer idUsuarioObjetivo = esAdmin(actual) ? request.getUsuarioId() : actual.getIdUsuario();
 
-        Usuario usuarioCompleto = usuarioRepository.findById(request.getUsuarioId())
-                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con ID: " + request.getUsuarioId()));
+        Usuario usuarioCompleto = usuarioRepository.findById(idUsuarioObjetivo)
+                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con ID: " + idUsuarioObjetivo));
         if (!usuarioCompleto.getActivo()) {
             throw new IllegalArgumentException("No se puede agendar una cita con un usuario inactivo.");
         }
@@ -62,17 +78,22 @@ public class CitaService {
         cita.setFechaHora(request.getFechaHora());
         cita.setEstado(EstadoCita.PENDIENTE);
 
-        return citaRepository.save(cita);
+        return mapearAResponseDTO(citaRepository.save(cita));
     }
 
-    public Cita obtenerCitaPorId(Integer id){
-        return citaRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Cita no encontrada con ID: " + id));
+    @Transactional(readOnly = true)
+    public CitaResponseDTO obtenerCitaPorId(Integer id, String emailAutenticado) {
+        Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
+        Cita cita = obtenerEntidadPorId(id);
+        verificarAcceso(cita, actual);
+        return mapearAResponseDTO(cita);
     }
 
-    public Cita actualizarCita(Integer id, CitaUpdateDTO request) {
-
-        Cita citaExistente = obtenerCitaPorId(id);
+    @Transactional
+    public CitaResponseDTO actualizarCita(Integer id, CitaUpdateDTO request, String emailAutenticado) {
+        Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
+        Cita citaExistente = obtenerEntidadPorId(id);
+        verificarAcceso(citaExistente, actual);
 
         if (request.getFechaHora() != null) {
             citaExistente.setFechaHora(request.getFechaHora());
@@ -82,7 +103,8 @@ public class CitaService {
             citaExistente.setEstado(request.getEstado());
         }
 
-        if (request.getUsuarioId() != null) {
+        // Solo un ADMIN puede reasignar una cita a otro usuario.
+        if (request.getUsuarioId() != null && esAdmin(actual)) {
             Usuario usuarioCompleto = usuarioRepository.findById(request.getUsuarioId())
                     .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con ID: " + request.getUsuarioId()));
             citaExistente.setUsuario(usuarioCompleto);
@@ -100,12 +122,46 @@ public class CitaService {
             validarConflictoHorario(citaExistente.getFechaHora(), citaExistente.getServicio().getDuracion(), id);
         }
 
-        return citaRepository.save(citaExistente);
+        return mapearAResponseDTO(citaRepository.save(citaExistente));
     }
 
-    public void eliminarCita(Integer id){
-        Cita citaExistente = obtenerCitaPorId(id);
+    @Transactional
+    public void eliminarCita(Integer id, String emailAutenticado) {
+        Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
+        Cita citaExistente = obtenerEntidadPorId(id);
+        verificarAcceso(citaExistente, actual);
         citaRepository.delete(citaExistente);
+    }
+
+    private Cita obtenerEntidadPorId(Integer id) {
+        return citaRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Cita no encontrada con ID: " + id));
+    }
+
+    private Usuario obtenerUsuarioPorEmail(String email) {
+        return usuarioRepository.findByEmail(email)
+                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con email: " + email));
+    }
+
+    private boolean esAdmin(Usuario usuario) {
+        return usuario.getRol() == Rol.ADMIN;
+    }
+
+    // Solo el dueño de la cita o un ADMIN pueden verla, modificarla o eliminarla.
+    private void verificarAcceso(Cita cita, Usuario actual) {
+        if (!esAdmin(actual) && !cita.getUsuario().getIdUsuario().equals(actual.getIdUsuario())) {
+            throw new AccessDeniedException("No tienes permiso para acceder a este recurso.");
+        }
+    }
+
+    private CitaResponseDTO mapearAResponseDTO(Cita cita) {
+        CitaResponseDTO dto = new CitaResponseDTO();
+        dto.setIdCita(cita.getIdCita());
+        dto.setFechaHora(cita.getFechaHora());
+        dto.setEstado(cita.getEstado());
+        dto.setUsuario(UsuarioResponseDTO.desde(cita.getUsuario()));
+        dto.setServicio(ServicioResponseDTO.desde(cita.getServicio()));
+        return dto;
     }
 
     private void validarFechaFutura(LocalDateTime fechaHora) {

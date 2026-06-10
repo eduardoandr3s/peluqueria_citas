@@ -6,6 +6,7 @@ import com.segovia.peluqueria.usuario.dto.UsuarioResponseDTO;
 import com.segovia.peluqueria.usuario.dto.UsuarioUpdateDTO;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -31,13 +32,13 @@ public class UsuarioController {
     }
 
     @GetMapping("/{id}")
-    public UsuarioResponseDTO obtenerUsuarioPorId(@PathVariable Integer id){
-        return usuarioService.obtenerUsuarioPorId(id);
+    public UsuarioResponseDTO obtenerUsuarioPorId(@PathVariable Integer id, Authentication authentication){
+        return usuarioService.obtenerUsuarioPorId(id, authentication.getName());
     }
 
     @PutMapping("/{id}")
-    public UsuarioResponseDTO actualizarUsuario(@PathVariable Integer id, @Valid @RequestBody UsuarioUpdateDTO request){
-        return usuarioService.actualizarUsuario(id, request);
+    public UsuarioResponseDTO actualizarUsuario(@PathVariable Integer id, @Valid @RequestBody UsuarioUpdateDTO request, Authentication authentication){
+        return usuarioService.actualizarUsuario(id, request, authentication.getName());
     }
 
     @PatchMapping("/{id}/rol")
