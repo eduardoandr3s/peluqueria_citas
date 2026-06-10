@@ -12,10 +12,15 @@ import com.segovia.peluqueria.usuario.Usuario;
 import com.segovia.peluqueria.usuario.UsuarioRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.math.BigDecimal;
 import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.TemporalAdjusters;
 import java.util.List;
@@ -33,12 +38,15 @@ class CitaServiceTest {
     private ServicioRepository servicioRepository;
     private CitaService citaService;
 
+    private final Pageable pageable = PageRequest.of(0, 20);
+
     @BeforeEach
     void setUp() {
         citaRepository = mock(CitaRepository.class);
         usuarioRepository = mock(UsuarioRepository.class);
         servicioRepository = mock(ServicioRepository.class);
-        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository);
+        // HorarioProperties con sus valores por defecto: 09:00 - 20:00.
+        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository, new HorarioProperties());
 
         // Por defecto, el usuario autenticado es un ADMIN (acceso total).
         Usuario admin = new Usuario();
@@ -320,13 +328,13 @@ class CitaServiceTest {
         Cita c2 = new Cita();
         c2.setIdCita(2);
 
-        when(citaRepository.findAll()).thenReturn(List.of(c1, c2));
+        when(citaRepository.findAll(pageable)).thenReturn(new PageImpl<>(List.of(c1, c2)));
 
-        List<CitaResponseDTO> resultado = citaService.listarCitas(EMAIL_ADMIN);
+        Page<CitaResponseDTO> resultado = citaService.listarCitas(EMAIL_ADMIN, pageable);
 
-        assertEquals(2, resultado.size());
-        verify(citaRepository).findAll();
-        verify(citaRepository, never()).findByUsuarioIdUsuario(any());
+        assertEquals(2, resultado.getTotalElements());
+        verify(citaRepository).findAll(pageable);
+        verify(citaRepository, never()).findByUsuarioIdUsuario(any(), any());
     }
 
     @Test
@@ -337,13 +345,99 @@ class CitaServiceTest {
         c1.setUsuario(carlos);
 
         when(usuarioRepository.findByEmail("carlos@test.com")).thenReturn(Optional.of(carlos));
-        when(citaRepository.findByUsuarioIdUsuario(1)).thenReturn(List.of(c1));
+        when(citaRepository.findByUsuarioIdUsuario(1, pageable)).thenReturn(new PageImpl<>(List.of(c1)));
 
-        List<CitaResponseDTO> resultado = citaService.listarCitas("carlos@test.com");
+        Page<CitaResponseDTO> resultado = citaService.listarCitas("carlos@test.com", pageable);
 
-        assertEquals(1, resultado.size());
-        verify(citaRepository).findByUsuarioIdUsuario(1);
-        verify(citaRepository, never()).findAll();
+        assertEquals(1, resultado.getTotalElements());
+        verify(citaRepository).findByUsuarioIdUsuario(1, pageable);
+        verify(citaRepository, never()).findAll(any(Pageable.class));
+    }
+
+    @Test
+    void disponibilidad_diaVacio_devuelveTodosLosSlots() {
+        Servicio servicio = crearServicioActivo(); // 30 min
+        LocalDate fecha = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+
+        when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
+        when(citaRepository.contarConflictos(any(), any())).thenReturn(0);
+
+        List<String> slots = citaService.obtenerDisponibilidad(fecha, 1);
+
+        // 09:00 .. 19:30 en pasos de 30 min con servicio de 30 min => 22 slots.
+        assertEquals(22, slots.size());
+        assertEquals("09:00", slots.get(0));
+        assertEquals("19:30", slots.get(slots.size() - 1));
+        assertFalse(slots.contains("19:45"));
+    }
+
+    @Test
+    void disponibilidad_servicio90MinAlFiloDelCierre() {
+        Servicio servicio = crearServicioActivo();
+        servicio.setDuracion(90);
+        LocalDate fecha = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+
+        when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
+        when(citaRepository.contarConflictos(any(), any())).thenReturn(0);
+
+        List<String> slots = citaService.obtenerDisponibilidad(fecha, 1);
+
+        // Ultimo inicio valido para 90 min: 18:30 (termina 20:00).
+        assertEquals("18:30", slots.get(slots.size() - 1));
+        assertFalse(slots.contains("18:45"));
+        assertFalse(slots.contains("19:00"));
+    }
+
+    @Test
+    void disponibilidad_conCitaQueOcupaUnSlot() {
+        Servicio servicio = crearServicioActivo(); // 30 min
+        LocalDate fecha = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+
+        when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
+        // Conflicto solo en el slot de las 10:00.
+        when(citaRepository.contarConflictos(any(), any())).thenAnswer(inv -> {
+            LocalDateTime inicio = inv.getArgument(0);
+            return (inicio.getHour() == 10 && inicio.getMinute() == 0) ? 1 : 0;
+        });
+
+        List<String> slots = citaService.obtenerDisponibilidad(fecha, 1);
+
+        assertTrue(slots.contains("09:30"));
+        assertFalse(slots.contains("10:00"));
+        assertTrue(slots.contains("10:30"));
+    }
+
+    @Test
+    void disponibilidad_domingo_devuelveVacio() {
+        Servicio servicio = crearServicioActivo();
+        LocalDate domingo = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.SUNDAY));
+
+        when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
+
+        List<String> slots = citaService.obtenerDisponibilidad(domingo, 1);
+
+        assertTrue(slots.isEmpty());
+    }
+
+    @Test
+    void disponibilidad_fechaPasada_lanzaExcepcion() {
+        LocalDate ayer = LocalDate.now().minusDays(1);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> citaService.obtenerDisponibilidad(ayer, 1));
+        assertTrue(ex.getMessage().contains("pasada"));
+    }
+
+    @Test
+    void disponibilidad_servicioInactivo_lanzaExcepcion() {
+        Servicio servicio = crearServicioActivo();
+        servicio.setActivo(false);
+        LocalDate fecha = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+
+        when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> citaService.obtenerDisponibilidad(fecha, 1));
     }
 
     @Test

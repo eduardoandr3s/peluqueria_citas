@@ -1,8 +1,9 @@
 package com.segovia.peluqueria.usuario;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import java.util.List;
 import java.util.Optional;
 
 public interface UsuarioRepository extends JpaRepository<Usuario, Integer> {
@@ -13,7 +14,7 @@ public interface UsuarioRepository extends JpaRepository<Usuario, Integer> {
 
     Optional<Usuario> findByEmail(String email);
 
-    List<Usuario> findByActivoTrue();
+    Page<Usuario> findByActivoTrue(Pageable pageable);
 
     long countByRolAndActivoTrue(Rol rol);
 }

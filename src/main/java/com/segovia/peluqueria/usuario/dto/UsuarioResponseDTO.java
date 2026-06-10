@@ -14,6 +14,7 @@ public class UsuarioResponseDTO {
     private String telefono;
     private LocalDate fechaRegistro;
     private Rol rol;
+    private Boolean activo;
 
     public static UsuarioResponseDTO desde(Usuario usuario) {
         if (usuario == null) {
@@ -26,6 +27,7 @@ public class UsuarioResponseDTO {
         dto.setTelefono(usuario.getTelefono());
         dto.setFechaRegistro(usuario.getFechaRegistro());
         dto.setRol(usuario.getRol());
+        dto.setActivo(usuario.getActivo());
         return dto;
     }
 }

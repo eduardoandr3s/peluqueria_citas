@@ -12,41 +12,86 @@ import com.segovia.peluqueria.usuario.Rol;
 import com.segovia.peluqueria.usuario.Usuario;
 import com.segovia.peluqueria.usuario.UsuarioRepository;
 import com.segovia.peluqueria.usuario.dto.UsuarioResponseDTO;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
 public class CitaService {
 
-    private static final LocalTime HORA_APERTURA = LocalTime.of(9, 0);
-    private static final LocalTime HORA_CIERRE = LocalTime.of(20, 0);
+    private static final int PASO_SLOT_MINUTOS = 30;
 
     private final CitaRepository citaRepository;
     private final UsuarioRepository usuarioRepository;
     private final ServicioRepository servicioRepository;
+    private final HorarioProperties horario;
 
     public CitaService(CitaRepository citaRepository,
                        UsuarioRepository usuarioRepository,
-                       ServicioRepository servicioRepository) {
+                       ServicioRepository servicioRepository,
+                       HorarioProperties horario) {
         this.citaRepository = citaRepository;
         this.usuarioRepository = usuarioRepository;
         this.servicioRepository = servicioRepository;
+        this.horario = horario;
     }
 
     @Transactional(readOnly = true)
-    public List<CitaResponseDTO> listarCitas(String emailAutenticado) {
+    public Page<CitaResponseDTO> listarCitas(String emailAutenticado, Pageable pageable) {
         Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
         // Un ADMIN ve todas las citas; un USER solo las suyas.
-        List<Cita> citas = esAdmin(actual)
-                ? citaRepository.findAll()
-                : citaRepository.findByUsuarioIdUsuario(actual.getIdUsuario());
-        return citas.stream().map(this::mapearAResponseDTO).toList();
+        Page<Cita> citas = esAdmin(actual)
+                ? citaRepository.findAll(pageable)
+                : citaRepository.findByUsuarioIdUsuario(actual.getIdUsuario(), pageable);
+        return citas.map(this::mapearAResponseDTO);
+    }
+
+    @Transactional(readOnly = true)
+    public List<String> obtenerDisponibilidad(LocalDate fecha, Integer idServicio) {
+        if (fecha.isBefore(LocalDate.now())) {
+            throw new IllegalArgumentException("No se puede consultar disponibilidad en una fecha pasada.");
+        }
+
+        Servicio servicio = servicioRepository.findById(idServicio)
+                .orElseThrow(() -> new ResourceNotFoundException("Servicio no encontrado con ID: " + idServicio));
+        if (!servicio.getActivo()) {
+            throw new IllegalArgumentException("El servicio no esta disponible.");
+        }
+
+        // Domingo cerrado: no hay slots.
+        if (fecha.getDayOfWeek() == DayOfWeek.SUNDAY) {
+            return List.of();
+        }
+
+        int duracion = servicio.getDuracion();
+        LocalDateTime ahora = LocalDateTime.now();
+        List<String> slotsLibres = new ArrayList<>();
+
+        LocalTime inicio = horario.getApertura();
+        // El último inicio válido es aquel cuya cita aún termina a la hora de cierre o antes.
+        while (!inicio.plusMinutes(duracion).isAfter(horario.getCierre())) {
+            LocalDateTime inicioSlot = fecha.atTime(inicio);
+            LocalDateTime finSlot = inicioSlot.plusMinutes(duracion);
+
+            // Para el día de hoy, descartar los slots cuya hora de inicio ya pasó.
+            boolean yaPaso = inicioSlot.isBefore(ahora);
+            if (!yaPaso && citaRepository.contarConflictos(inicioSlot, finSlot) == 0) {
+                slotsLibres.add(inicio.toString());
+            }
+
+            inicio = inicio.plusMinutes(PASO_SLOT_MINUTOS);
+        }
+
+        return slotsLibres;
     }
 
     @Transactional
@@ -179,12 +224,12 @@ public class CitaService {
             throw new IllegalArgumentException("No se atiende los domingos.");
         }
 
-        if (horaInicio.isBefore(HORA_APERTURA)) {
-            throw new IllegalArgumentException("La cita no puede ser antes de las " + HORA_APERTURA + ".");
+        if (horaInicio.isBefore(horario.getApertura())) {
+            throw new IllegalArgumentException("La cita no puede ser antes de las " + horario.getApertura() + ".");
         }
 
-        if (horaFin.isAfter(HORA_CIERRE)) {
-            throw new IllegalArgumentException("La cita (incluyendo la duracion del servicio) no puede terminar despues de las " + HORA_CIERRE + ".");
+        if (horaFin.isAfter(horario.getCierre())) {
+            throw new IllegalArgumentException("La cita (incluyendo la duracion del servicio) no puede terminar despues de las " + horario.getCierre() + ".");
         }
     }
 

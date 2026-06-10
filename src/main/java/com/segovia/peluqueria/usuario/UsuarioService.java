@@ -6,13 +6,14 @@ import com.segovia.peluqueria.usuario.dto.UsuarioResponseDTO;
 import com.segovia.peluqueria.usuario.dto.UsuarioUpdateDTO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
-import java.util.List;
 
 @Service
 public class UsuarioService {
@@ -29,10 +30,11 @@ public class UsuarioService {
     }
 
     @Transactional(readOnly = true)
-    public List<UsuarioResponseDTO> listarUsuarios() {
-        return usuarioRepository.findByActivoTrue().stream()
-                .map(UsuarioResponseDTO::desde)
-                .toList();
+    public Page<UsuarioResponseDTO> listarUsuarios(boolean incluirInactivos, Pageable pageable) {
+        Page<Usuario> usuarios = incluirInactivos
+                ? usuarioRepository.findAll(pageable)
+                : usuarioRepository.findByActivoTrue(pageable);
+        return usuarios.map(UsuarioResponseDTO::desde);
     }
 
     @Transactional
@@ -129,5 +131,16 @@ public class UsuarioService {
         Usuario usuarioExistente = obtenerEntidadPorId(id);
         usuarioExistente.setActivo(false);
         usuarioRepository.save(usuarioExistente);
+    }
+
+    @Transactional
+    public UsuarioResponseDTO activarUsuario(Integer id) {
+        // findById directo (no obtenerEntidadPorId): el usuario a reactivar esta inactivo por definicion.
+        Usuario usuario = usuarioRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con id: " + id));
+        usuario.setActivo(true);
+        Usuario usuarioGuardado = usuarioRepository.save(usuario);
+        log.info("Usuario reactivado id={} ({})", usuario.getIdUsuario(), usuario.getEmail());
+        return UsuarioResponseDTO.desde(usuarioGuardado);
     }
 }

@@ -6,6 +6,10 @@ import com.segovia.peluqueria.usuario.dto.UsuarioResponseDTO;
 import com.segovia.peluqueria.usuario.dto.UsuarioUpdateDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -23,6 +27,8 @@ class UsuarioServiceTest {
     private UsuarioRepository usuarioRepository;
     private PasswordEncoder passwordEncoder;
     private UsuarioService usuarioService;
+
+    private final Pageable pageable = PageRequest.of(0, 20);
 
     @BeforeEach
     void setUp() {
@@ -131,20 +137,40 @@ class UsuarioServiceTest {
     }
 
     @Test
-    void listarUsuarios_devuelveListaDTOs() {
+    void listarUsuarios_soloActivos_usaFindByActivoTrue() {
         Usuario u1 = crearUsuarioBase();
         Usuario u2 = crearUsuarioBase();
         u2.setIdUsuario(2);
         u2.setNombre("Ana");
         u2.setEmail("ana@test.com");
 
-        when(usuarioRepository.findByActivoTrue()).thenReturn(List.of(u1, u2));
+        when(usuarioRepository.findByActivoTrue(pageable)).thenReturn(new PageImpl<>(List.of(u1, u2)));
 
-        List<UsuarioResponseDTO> resultado = usuarioService.listarUsuarios();
+        Page<UsuarioResponseDTO> resultado = usuarioService.listarUsuarios(false, pageable);
 
-        assertEquals(2, resultado.size());
-        assertEquals("Carlos", resultado.get(0).getNombre());
-        assertEquals("Ana", resultado.get(1).getNombre());
+        assertEquals(2, resultado.getTotalElements());
+        assertEquals("Carlos", resultado.getContent().get(0).getNombre());
+        assertTrue(resultado.getContent().get(0).getActivo());
+        verify(usuarioRepository).findByActivoTrue(pageable);
+        verify(usuarioRepository, never()).findAll(any(Pageable.class));
+    }
+
+    @Test
+    void listarUsuarios_incluirInactivos_usaFindAll() {
+        Usuario activo = crearUsuarioBase();
+        Usuario inactivo = crearUsuarioBase();
+        inactivo.setIdUsuario(2);
+        inactivo.setNombre("Ana");
+        inactivo.setActivo(false);
+
+        when(usuarioRepository.findAll(pageable)).thenReturn(new PageImpl<>(List.of(activo, inactivo)));
+
+        Page<UsuarioResponseDTO> resultado = usuarioService.listarUsuarios(true, pageable);
+
+        assertEquals(2, resultado.getTotalElements());
+        assertFalse(resultado.getContent().get(1).getActivo());
+        verify(usuarioRepository).findAll(pageable);
+        verify(usuarioRepository, never()).findByActivoTrue(any(Pageable.class));
     }
 
     @Test
@@ -225,6 +251,29 @@ class UsuarioServiceTest {
 
         assertThrows(ResourceNotFoundException.class,
                 () -> usuarioService.eliminarUsuario(99));
+    }
+
+    @Test
+    void activarUsuario_marcaActivo() {
+        Usuario usuario = crearUsuarioBase();
+        usuario.setActivo(false);
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(usuario));
+        when(usuarioRepository.save(any(Usuario.class))).thenAnswer(i -> i.getArgument(0));
+
+        UsuarioResponseDTO resultado = usuarioService.activarUsuario(1);
+
+        assertTrue(usuario.getActivo());
+        assertTrue(resultado.getActivo());
+        verify(usuarioRepository).save(usuario);
+    }
+
+    @Test
+    void activarUsuario_noExiste_lanzaExcepcion() {
+        when(usuarioRepository.findById(99)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> usuarioService.activarUsuario(99));
+        verify(usuarioRepository, never()).save(any());
     }
 
     @Test

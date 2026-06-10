@@ -124,3 +124,43 @@ Authorization: Bearer {{token}}
 {
   "rol": "USER"
 }
+
+##############################################
+# FASE 2 — paginacion, disponibilidad, reactivar
+# (todas las de citas/usuarios requieren Authorization)
+##############################################
+
+### Listar citas paginado (ADMIN ve todas, USER solo las suyas)
+GET http://localhost:8080/api/citas?page=0&size=20&sort=fechaHora,desc
+Authorization: Bearer {{token}}
+
+### Consultar disponibilidad de horarios para un servicio en una fecha
+GET http://localhost:8080/api/citas/disponibilidad?fecha=2026-06-15&idServicio=1
+Authorization: Bearer {{token}}
+
+### Agendar una cita (formato real del DTO: usuarioId/servicioId/fechaHora)
+POST http://localhost:8080/api/citas
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "usuarioId": 1,
+  "servicioId": 1,
+  "fechaHora": "2026-06-15T10:00:00"
+}
+
+### Listar usuarios paginado (solo activos, por defecto) — solo ADMIN
+GET http://localhost:8080/api/usuarios?page=0&size=20&sort=nombre,asc
+Authorization: Bearer {{token}}
+
+### Listar usuarios incluyendo los desactivados — solo ADMIN
+GET http://localhost:8080/api/usuarios?incluirInactivos=true
+Authorization: Bearer {{token}}
+
+### Reactivar un usuario desactivado — solo ADMIN
+PATCH http://localhost:8080/api/usuarios/4/activar
+Authorization: Bearer {{token}}
+
+### Documentacion OpenAPI / Swagger UI (navegador)
+# http://localhost:8080/swagger-ui.html
+# http://localhost:8080/v3/api-docs

@@ -22,13 +22,17 @@ Este repositorio contiene el backend de un sistema integral de gestion de citas 
 * **Autenticacion JWT con Roles:** Sistema de login/registro con tokens JWT. Dos roles implementados: `USER` (clientes) y `ADMIN` (administrador). Cada endpoint esta protegido segun el rol requerido.
 * **Patron DTO (Data Transfer Object):** Implementado en todas las entidades (Usuario, Servicio, Cita) con DTOs separados para creacion y actualizacion parcial. Garantiza que informacion sensible no se exponga en las respuestas.
 * **Validacion de Conflictos de Horarios:** El sistema impide agendar citas que se solapen con otras ya existentes, calculando el rango de tiempo segun la duracion del servicio.
-* **Validacion de Horario Laboral:** Las citas solo se pueden agendar de Lunes a Sabado entre 9:00 y 20:00, y no se permiten citas en el pasado.
-* **Soft Delete:** Los usuarios y servicios no se eliminan fisicamente, se marcan como inactivos. Esto preserva el historial de citas para estadisticas y auditoria.
+* **Validacion de Horario Laboral:** Las citas solo se pueden agendar de Lunes a Sabado entre 9:00 y 20:00, y no se permiten citas en el pasado. El horario es **configurable** via properties (`peluqueria.horario.apertura` / `peluqueria.horario.cierre`).
+* **Control de Propiedad (Ownership):** Un `USER` solo puede ver, modificar o eliminar sus propias citas y sus propios datos; un `ADMIN` puede acceder a los de cualquiera. Los accesos no autorizados devuelven `403 Forbidden`.
+* **Paginacion y Ordenacion:** Los listados de citas (`/api/citas`) y usuarios (`/api/usuarios`) estan paginados (`page`, `size`, `sort`), devolviendo un objeto `Page` de Spring Data.
+* **Consulta de Disponibilidad:** Endpoint `/api/citas/disponibilidad` que calcula los huecos libres (slots de 30 min) para un servicio en una fecha, descontando citas existentes y respetando el horario laboral.
+* **Soft Delete + Reactivacion:** Los usuarios y servicios no se eliminan fisicamente, se marcan como inactivos. Los usuarios desactivados pueden listarse (`?incluirInactivos=true`) y reactivarse (`PATCH /api/usuarios/{id}/activar`).
 * **Validacion de Unicidad de Email:** Se verifica tanto al crear como al actualizar que no exista otro usuario con el mismo email.
-* **Manejo Global de Excepciones:** `@RestControllerAdvice` con handlers especificos para validacion (400), recurso no encontrado (404), conflictos (409) y un handler generico (500) que no expone informacion interna.
+* **Manejo Global de Excepciones:** `@RestControllerAdvice` con handlers especificos para validacion (400), recurso no encontrado (404), acceso denegado (403), conflictos (409) y un handler generico (500) que no expone informacion interna. Incluye logging (SLF4J).
+* **Documentacion OpenAPI / Swagger UI:** Generada automaticamente con springdoc-openapi. Disponible en `/swagger-ui.html` y `/v3/api-docs`.
 * **Perfiles de Configuracion:** Separacion entre entorno de desarrollo (`dev`) y produccion (`prod`) con configuraciones especificas para cada uno.
 * **Tipado Estricto con Enums:** Estado de citas (`PENDIENTE`, `CONFIRMADA`, `ANULADA`) y roles (`USER`, `ADMIN`) mediante enumeraciones.
-* **Suite de Tests Unitarios (59 tests):** Cobertura completa de logica de negocio sin depender de Spring context ni base de datos.
+* **Suite de Tests Unitarios (81 tests):** Cobertura completa de logica de negocio sin depender de Spring context ni base de datos.
 
 ## Estructura del Proyecto
 
@@ -47,12 +51,14 @@ com.segovia.peluqueria/
 ├── cita/                     # Modulo de citas
 │   ├── Cita.java
 │   ├── EstadoCita.java       # Enum (PENDIENTE, CONFIRMADA, ANULADA)
+│   ├── HorarioProperties.java # Horario laboral configurable
 │   ├── CitaController.java
 │   ├── CitaService.java
 │   ├── CitaRepository.java
 │   └── dto/
 │       ├── CitaRequestDTO.java
-│       └── CitaUpdateDTO.java
+│       ├── CitaUpdateDTO.java
+│       └── CitaResponseDTO.java
 ├── servicio/                 # Modulo de servicios
 │   ├── Servicio.java
 │   ├── ServicioController.java
@@ -60,7 +66,8 @@ com.segovia.peluqueria/
 │   ├── ServicioRepository.java
 │   └── dto/
 │       ├── ServicioRequestDTO.java
-│       └── ServicioUpdateDTO.java
+│       ├── ServicioUpdateDTO.java
+│       └── ServicioResponseDTO.java
 ├── auth/                     # Modulo de autenticacion
 │   ├── AuthController.java
 │   └── dto/
@@ -79,12 +86,12 @@ com.segovia.peluqueria/
 
 ## Tests
 
-59 unit tests que cubren toda la logica de negocio, ejecutandose sin Spring context ni base de datos (~2 segundos):
+81 unit tests que cubren toda la logica de negocio, ejecutandose sin Spring context ni base de datos (~2 segundos):
 
 | Clase | Tests | Cobertura |
 |-------|-------|-----------|
-| UsuarioServiceTest | 10 | CRUD, email duplicado, encriptacion, soft delete |
-| CitaServiceTest | 18 | Agendar, horarios, conflictos, CRUD completo |
+| UsuarioServiceTest | 20 | CRUD, email duplicado, encriptacion, soft delete, ownership, reactivar, paginacion |
+| CitaServiceTest | 29 | Agendar, horarios, conflictos, CRUD, ownership, disponibilidad, paginacion |
 | ServicioServiceTest | 9 | CRUD, soft delete |
 | JwtServiceTest | 8 | Generar/extraer/validar tokens, firmas |
 | AuthControllerTest | 5 | Login, registro, credenciales invalidas |
@@ -116,19 +123,29 @@ Para ejecutar los tests:
 ### Usuarios
 | Metodo | Endpoint | Acceso | Descripcion |
 |--------|----------|--------|-------------|
-| GET | `/api/usuarios` | ADMIN | Listar usuarios activos |
-| GET | `/api/usuarios/{id}` | USER/ADMIN | Obtener usuario por ID |
-| PUT | `/api/usuarios/{id}` | USER/ADMIN | Actualizar usuario |
+| GET | `/api/usuarios` | ADMIN | Listar usuarios (paginado). `?incluirInactivos=true` incluye desactivados |
+| GET | `/api/usuarios/{id}` | Propio/ADMIN | Obtener usuario por ID (solo el propio o ADMIN) |
+| POST | `/api/usuarios` | ADMIN | Crear usuario |
+| PUT | `/api/usuarios/{id}` | Propio/ADMIN | Actualizar usuario (solo el propio o ADMIN) |
+| PATCH | `/api/usuarios/{id}/rol` | ADMIN | Cambiar rol (con guard anti-lockout del ultimo ADMIN) |
+| PATCH | `/api/usuarios/{id}/activar` | ADMIN | Reactivar un usuario desactivado |
 | DELETE | `/api/usuarios/{id}` | ADMIN | Desactivar usuario (soft delete) |
 
 ### Citas
 | Metodo | Endpoint | Acceso | Descripcion |
 |--------|----------|--------|-------------|
-| GET | `/api/citas` | USER/ADMIN | Listar citas |
-| GET | `/api/citas/{id}` | USER/ADMIN | Obtener cita por ID |
-| POST | `/api/citas` | USER/ADMIN | Agendar cita |
-| PUT | `/api/citas/{id}` | USER/ADMIN | Actualizar cita |
-| DELETE | `/api/citas/{id}` | USER/ADMIN | Eliminar cita |
+| GET | `/api/citas` | USER/ADMIN | Listar citas (paginado). USER ve solo las suyas, ADMIN todas |
+| GET | `/api/citas/disponibilidad` | USER/ADMIN | Slots libres para `?fecha=YYYY-MM-DD&idServicio=N` |
+| GET | `/api/citas/{id}` | Propio/ADMIN | Obtener cita por ID (solo dueno o ADMIN) |
+| POST | `/api/citas` | USER/ADMIN | Agendar cita (un USER solo para si mismo) |
+| PUT | `/api/citas/{id}` | Propio/ADMIN | Actualizar cita (solo dueno o ADMIN) |
+| DELETE | `/api/citas/{id}` | Propio/ADMIN | Eliminar cita (solo dueno o ADMIN) |
+
+### Documentacion (publico)
+| Metodo | Endpoint | Descripcion |
+|--------|----------|-------------|
+| GET | `/swagger-ui.html` | Interfaz Swagger UI interactiva |
+| GET | `/v3/api-docs` | Especificacion OpenAPI en JSON |
 
 ## Modelo de Datos
 
@@ -166,11 +183,13 @@ Para ejecutar los tests:
 
     *(Nota: El perfil `dev` usa `ddl-auto=update`, que crea y actualiza las tablas automaticamente al iniciar.)*
 
+    *(Opcional: el horario laboral se puede ajustar con `peluqueria.horario.apertura` y `peluqueria.horario.cierre` en `application.properties`. Por defecto 09:00-20:00.)*
+
 4.  **Ejecutar la aplicacion:**
     ```bash
     ./mvnw spring-boot:run
     ```
-    La API estara disponible en `http://localhost:8080`.
+    La API estara disponible en `http://localhost:8080`. La documentacion interactiva (Swagger UI) en `http://localhost:8080/swagger-ui.html`.
 
 5.  **Crear un usuario ADMIN (opcional):**
     Despues de registrar un usuario, promuevelo a ADMIN directamente en PostgreSQL:
@@ -197,8 +216,15 @@ Para ejecutar los tests:
 - [x] Autenticacion JWT y autorizacion por roles (USER/ADMIN).
 - [x] Constructor injection y eliminacion de `@Data` en entidades JPA.
 - [x] Reestructuracion de paquetes por dominio (usuario, cita, servicio, auth, security).
-- [x] Suite de 59 unit tests (services, security, controller).
+- [x] Suite de 81 unit tests (services, security, controller).
 - [x] Configuracion de CORS por perfil (origenes externalizados a `CORS_ALLOWED_ORIGINS` en prod).
+- [x] Endpoint para que un ADMIN cambie el rol de un usuario (con guard anti-lockout).
+- [x] Control de propiedad (ownership) en citas y usuarios; DTOs de respuesta para Cita/Servicio (no se exponen entidades).
+- [x] Paginacion y ordenacion en listados de citas y usuarios.
+- [x] Endpoint de disponibilidad de horarios y horario laboral configurable.
+- [x] Listar/reactivar usuarios desactivados (`?incluirInactivos=true`, `PATCH /{id}/activar`).
+- [x] Logging (SLF4J) y `@Transactional` en la capa de servicio.
+- [x] Documentacion OpenAPI / Swagger UI (springdoc).
 - [ ] Desarrollo del Frontend interactivo consumiendo esta API.
 
 ---
