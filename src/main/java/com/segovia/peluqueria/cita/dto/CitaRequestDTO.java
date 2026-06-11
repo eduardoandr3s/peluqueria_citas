@@ -8,7 +8,9 @@ import java.time.LocalDateTime;
 @Data
 public class CitaRequestDTO {
 
-    @NotNull(message = "El ID del usuario es obligatorio")
+    // Opcional: un USER agenda para sí mismo y el backend deriva la identidad del token,
+    // ignorando este campo (ver CitaService.agendarCita). Solo un ADMIN lo usa para
+    // agendar a nombre de otro usuario. El cliente móvil lo omite.
     private Integer usuarioId;
 
     @NotNull(message = "El ID del servicio es obligatorio")
