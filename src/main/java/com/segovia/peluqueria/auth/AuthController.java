@@ -52,7 +52,8 @@ public class AuthController {
             throw new IllegalArgumentException("Credenciales incorrectas.");
         }
 
-        String token = jwtService.generarToken(usuario.getEmail(), usuario.getRol().name(), usuario.getIdUsuario());
+        String token = jwtService.generarToken(usuario.getEmail(), usuario.getRol().name(),
+                usuario.getIdUsuario(), usuario.getTokenVersion());
 
         return new AuthResponseDTO(token, usuario.getEmail(), usuario.getNombre(), usuario.getRol().name());
     }

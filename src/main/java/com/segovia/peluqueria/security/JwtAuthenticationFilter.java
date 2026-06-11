@@ -49,7 +49,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
                 UserDetails userDetails = userDetailsService.loadUserByUsername(email);
 
-                if (jwtService.esTokenValido(token, userDetails.getUsername())) {
+                // Ademas de la firma/expiracion: la cuenta debe seguir activa y el tokenVersion
+                // del JWT debe coincidir con el de la BD (revocacion de tokens emitidos antes).
+                if (jwtService.esTokenValido(token, userDetails.getUsername())
+                        && userDetails.isEnabled()
+                        && tokenVersionVigente(token, userDetails)) {
 
                     UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                             userDetails, null, userDetails.getAuthorities()
@@ -64,5 +68,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    // El token solo es vigente si su claim tokenVersion coincide con el actual del usuario en BD.
+    // Un token sin el claim (emitido antes de esta funcionalidad) se considera no vigente.
+    private boolean tokenVersionVigente(String token, UserDetails userDetails) {
+        if (userDetails instanceof UsuarioPrincipal principal) {
+            Integer versionToken = jwtService.extraerTokenVersion(token);
+            return versionToken != null && versionToken.equals(principal.getTokenVersion());
+        }
+        return true;
     }
 }

@@ -8,7 +8,6 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import java.io.IOException;
@@ -38,6 +37,11 @@ class JwtAuthenticationFilterTest {
         SecurityContextHolder.clearContext();
     }
 
+    private UsuarioPrincipal principal(boolean activo, int tokenVersion) {
+        return new UsuarioPrincipal("carlos@test.com", "encriptada", activo,
+                List.of(new SimpleGrantedAuthority("ROLE_USER")), 1, tokenVersion);
+    }
+
     @Test
     void request_sinHeader_continuaSinAutenticar() throws ServletException, IOException {
         filter.doFilterInternal(request, response, filterChain);
@@ -62,12 +66,12 @@ class JwtAuthenticationFilterTest {
         String token = "token.jwt.valido";
         request.addHeader("Authorization", "Bearer " + token);
 
-        UserDetails userDetails = new User("carlos@test.com", "encriptada",
-                List.of(new SimpleGrantedAuthority("ROLE_USER")));
+        UserDetails userDetails = principal(true, 1);
 
         when(jwtService.extraerEmail(token)).thenReturn("carlos@test.com");
         when(userDetailsService.loadUserByUsername("carlos@test.com")).thenReturn(userDetails);
         when(jwtService.esTokenValido(token, "carlos@test.com")).thenReturn(true);
+        when(jwtService.extraerTokenVersion(token)).thenReturn(1);
 
         filter.doFilterInternal(request, response, filterChain);
 
@@ -95,12 +99,47 @@ class JwtAuthenticationFilterTest {
         String token = "token.jwt.expirado";
         request.addHeader("Authorization", "Bearer " + token);
 
-        UserDetails userDetails = new User("carlos@test.com", "encriptada",
-                List.of(new SimpleGrantedAuthority("ROLE_USER")));
+        UserDetails userDetails = principal(true, 1);
 
         when(jwtService.extraerEmail(token)).thenReturn("carlos@test.com");
         when(userDetailsService.loadUserByUsername("carlos@test.com")).thenReturn(userDetails);
         when(jwtService.esTokenValido(token, "carlos@test.com")).thenReturn(false);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    void request_usuarioDesactivado_continuaSinAutenticar() throws ServletException, IOException {
+        String token = "token.jwt.valido";
+        request.addHeader("Authorization", "Bearer " + token);
+
+        UserDetails userDetails = principal(false, 1);
+
+        when(jwtService.extraerEmail(token)).thenReturn("carlos@test.com");
+        when(userDetailsService.loadUserByUsername("carlos@test.com")).thenReturn(userDetails);
+        when(jwtService.esTokenValido(token, "carlos@test.com")).thenReturn(true);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    void request_tokenVersionDesactualizado_continuaSinAutenticar() throws ServletException, IOException {
+        String token = "token.jwt.viejo";
+        request.addHeader("Authorization", "Bearer " + token);
+
+        // El usuario en BD esta en version 2, pero el token se emitio en version 1.
+        UserDetails userDetails = principal(true, 2);
+
+        when(jwtService.extraerEmail(token)).thenReturn("carlos@test.com");
+        when(userDetailsService.loadUserByUsername("carlos@test.com")).thenReturn(userDetails);
+        when(jwtService.esTokenValido(token, "carlos@test.com")).thenReturn(true);
+        when(jwtService.extraerTokenVersion(token)).thenReturn(1);
 
         filter.doFilterInternal(request, response, filterChain);
 

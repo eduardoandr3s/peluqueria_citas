@@ -100,6 +100,8 @@ public class UsuarioService {
 
         if (request.getPassword() != null && !request.getPassword().isEmpty()) {
             usuarioExistente.setPassword(passwordEncoder.encode(request.getPassword()));
+            // Al cambiar la password invalidamos los tokens emitidos antes (posible robo de sesion).
+            usuarioExistente.setTokenVersion(usuarioExistente.getTokenVersion() + 1);
         }
 
         Usuario usuarioGuardado = usuarioRepository.save(usuarioExistente);
@@ -119,6 +121,8 @@ public class UsuarioService {
 
         Rol rolAnterior = usuario.getRol();
         usuario.setRol(nuevoRol);
+        // Invalida los tokens vigentes para que el cambio de rol obligue a renovar la sesion.
+        usuario.setTokenVersion(usuario.getTokenVersion() + 1);
         Usuario usuarioGuardado = usuarioRepository.save(usuario);
         log.info("Cambio de rol del usuario id={} ({}): {} -> {}",
                 usuario.getIdUsuario(), usuario.getEmail(), rolAnterior, nuevoRol);

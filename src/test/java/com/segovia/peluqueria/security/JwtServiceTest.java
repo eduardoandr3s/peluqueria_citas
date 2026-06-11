@@ -30,7 +30,7 @@ class JwtServiceTest {
 
     @Test
     void generarToken_yExtraerEmail_correcto() {
-        String token = jwtService.generarToken("carlos@test.com", "USER", 1);
+        String token = jwtService.generarToken("carlos@test.com", "USER", 1, 1);
 
         String email = jwtService.extraerEmail(token);
 
@@ -39,7 +39,7 @@ class JwtServiceTest {
 
     @Test
     void generarToken_yExtraerRol_correcto() {
-        String token = jwtService.generarToken("carlos@test.com", "ADMIN", 1);
+        String token = jwtService.generarToken("carlos@test.com", "ADMIN", 1, 1);
 
         String rol = jwtService.extraerRol(token);
 
@@ -48,7 +48,7 @@ class JwtServiceTest {
 
     @Test
     void generarToken_yExtraerIdUsuario_correcto() {
-        String token = jwtService.generarToken("carlos@test.com", "USER", 42);
+        String token = jwtService.generarToken("carlos@test.com", "USER", 42, 1);
 
         Integer idUsuario = jwtService.extraerIdUsuario(token);
 
@@ -56,15 +56,24 @@ class JwtServiceTest {
     }
 
     @Test
+    void generarToken_yExtraerTokenVersion_correcto() {
+        String token = jwtService.generarToken("carlos@test.com", "USER", 1, 7);
+
+        Integer tokenVersion = jwtService.extraerTokenVersion(token);
+
+        assertEquals(7, tokenVersion);
+    }
+
+    @Test
     void tokenValido_conEmailCorrecto_retornaTrue() {
-        String token = jwtService.generarToken("carlos@test.com", "USER", 1);
+        String token = jwtService.generarToken("carlos@test.com", "USER", 1, 1);
 
         assertTrue(jwtService.esTokenValido(token, "carlos@test.com"));
     }
 
     @Test
     void tokenValido_conEmailIncorrecto_retornaFalse() {
-        String token = jwtService.generarToken("carlos@test.com", "USER", 1);
+        String token = jwtService.generarToken("carlos@test.com", "USER", 1, 1);
 
         assertFalse(jwtService.esTokenValido(token, "otro@test.com"));
     }
@@ -75,7 +84,7 @@ class JwtServiceTest {
         setField(jwtServiceExpirado, "secret", TEST_SECRET);
         setField(jwtServiceExpirado, "expiration", EXPIRED_EXPIRATION);
 
-        String token = jwtServiceExpirado.generarToken("carlos@test.com", "USER", 1);
+        String token = jwtServiceExpirado.generarToken("carlos@test.com", "USER", 1, 1);
 
         Thread.sleep(10);
 
@@ -85,7 +94,7 @@ class JwtServiceTest {
 
     @Test
     void tokenManipulado_lanzaExcepcion() {
-        String token = jwtService.generarToken("carlos@test.com", "USER", 1);
+        String token = jwtService.generarToken("carlos@test.com", "USER", 1, 1);
 
         String tokenManipulado = token.substring(0, token.length() - 5) + "XXXXX";
 
@@ -99,7 +108,7 @@ class JwtServiceTest {
         setField(otroJwtService, "secret", "otraClaveSecretaMuyDiferenteYLarga!!");
         setField(otroJwtService, "expiration", TEST_EXPIRATION);
 
-        String tokenConOtraFirma = otroJwtService.generarToken("carlos@test.com", "USER", 1);
+        String tokenConOtraFirma = otroJwtService.generarToken("carlos@test.com", "USER", 1, 1);
 
         assertThrows(Exception.class,
                 () -> jwtService.esTokenValido(tokenConOtraFirma, "carlos@test.com"));

@@ -43,4 +43,9 @@ public class Usuario {
 
     @Column(nullable = false, columnDefinition = "boolean default true")
     private Boolean activo = true;
+
+    // Se incrementa para invalidar tokens emitidos antes (ej. cambio de password o de rol).
+    // El JWT lleva esta version como claim; el filtro la compara con la de BD en cada request.
+    @Column(name = "token_version", nullable = false, columnDefinition = "integer default 1")
+    private Integer tokenVersion = 1;
 }

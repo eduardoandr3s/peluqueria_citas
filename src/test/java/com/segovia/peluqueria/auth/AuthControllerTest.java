@@ -74,7 +74,7 @@ class AuthControllerTest {
 
         when(usuarioRepository.findByEmail("carlos@test.com")).thenReturn(Optional.of(usuario));
         when(passwordEncoder.matches("password123", "encriptada123")).thenReturn(true);
-        when(jwtService.generarToken("carlos@test.com", "USER", 1)).thenReturn("token.jwt.generado");
+        when(jwtService.generarToken("carlos@test.com", "USER", 1, 1)).thenReturn("token.jwt.generado");
 
         AuthResponseDTO resultado = authController.login(request);
 
