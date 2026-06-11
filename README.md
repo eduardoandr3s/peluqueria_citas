@@ -19,7 +19,7 @@ Este repositorio contiene el backend de un sistema integral de gestion de citas 
 
 * **Arquitectura por Dominio:** Organizacion del codigo por modulo de negocio (`usuario/`, `cita/`, `servicio/`, `auth/`, `security/`), donde cada modulo agrupa su modelo, controller, service, repository y DTOs.
 * **Constructor Injection:** Inyeccion de dependencias via constructor con campos `final` (sin `@Autowired`), siguiendo las mejores practicas de Spring para inmutabilidad y testabilidad.
-* **Autenticacion JWT con Roles:** Sistema de login/registro con tokens JWT. Dos roles implementados: `USER` (clientes) y `ADMIN` (administrador). Cada endpoint esta protegido segun el rol requerido.
+* **Autenticacion JWT con Roles:** Sistema de login/registro con tokens JWT (expiracion 4h). Dos roles: `USER` (clientes) y `ADMIN` (administrador). Cada endpoint esta protegido segun el rol requerido. En cada request se valida ademas que la cuenta siga activa y que el `tokenVersion` del token coincida con el de la BD: cambiar la contrasena o el rol **revoca** los tokens emitidos antes (el rol y el estado activo se leen siempre de la BD, no del token).
 * **Patron DTO (Data Transfer Object):** Implementado en todas las entidades (Usuario, Servicio, Cita) con DTOs separados para creacion y actualizacion parcial. Garantiza que informacion sensible no se exponga en las respuestas.
 * **Validacion de Conflictos de Horarios:** El sistema impide agendar citas que se solapen con otras ya existentes, calculando el rango de tiempo segun la duracion del servicio.
 * **Validacion de Horario Laboral:** Las citas solo se pueden agendar de Lunes a Sabado entre 9:00 y 20:00, y no se permiten citas en el pasado. El horario es **configurable** via properties (`peluqueria.horario.apertura` / `peluqueria.horario.cierre`).
@@ -27,12 +27,13 @@ Este repositorio contiene el backend de un sistema integral de gestion de citas 
 * **Paginacion y Ordenacion:** Los listados de citas (`/api/citas`) y usuarios (`/api/usuarios`) estan paginados (`page`, `size`, `sort`), devolviendo un objeto `Page` de Spring Data.
 * **Consulta de Disponibilidad:** Endpoint `/api/citas/disponibilidad` que calcula los huecos libres (slots de 30 min) para un servicio en una fecha, descontando citas existentes y respetando el horario laboral.
 * **Soft Delete + Reactivacion:** Los usuarios y servicios no se eliminan fisicamente, se marcan como inactivos. Los usuarios desactivados pueden listarse (`?incluirInactivos=true`) y reactivarse (`PATCH /api/usuarios/{id}/activar`).
+* **Busqueda de Usuarios:** `GET /api/usuarios?search=` filtra por nombre o email (contains, case-insensitive) sobre toda la tabla en BD, combinable con `incluirInactivos` y la paginacion.
 * **Validacion de Unicidad de Email:** Se verifica tanto al crear como al actualizar que no exista otro usuario con el mismo email.
 * **Manejo Global de Excepciones:** `@RestControllerAdvice` con handlers especificos para validacion (400), recurso no encontrado (404), acceso denegado (403), conflictos (409) y un handler generico (500) que no expone informacion interna. Incluye logging (SLF4J).
 * **Documentacion OpenAPI / Swagger UI:** Generada automaticamente con springdoc-openapi. Disponible en `/swagger-ui.html` y `/v3/api-docs`.
 * **Perfiles de Configuracion:** Separacion entre entorno de desarrollo (`dev`) y produccion (`prod`) con configuraciones especificas para cada uno.
 * **Tipado Estricto con Enums:** Estado de citas (`PENDIENTE`, `CONFIRMADA`, `ANULADA`) y roles (`USER`, `ADMIN`) mediante enumeraciones.
-* **Suite de Tests Unitarios (81 tests):** Cobertura completa de logica de negocio sin depender de Spring context ni base de datos.
+* **Suite de Tests Unitarios (88 tests):** Cobertura completa de logica de negocio sin depender de Spring context ni base de datos.
 
 ## Estructura del Proyecto
 
@@ -90,13 +91,13 @@ com.segovia.peluqueria/
 
 | Clase | Tests | Cobertura |
 |-------|-------|-----------|
-| UsuarioServiceTest | 20 | CRUD, email duplicado, encriptacion, soft delete, ownership, reactivar, paginacion |
+| UsuarioServiceTest | 24 | CRUD, email duplicado, encriptacion, soft delete, ownership, reactivar, paginacion, busqueda |
 | CitaServiceTest | 29 | Agendar, horarios, conflictos, CRUD, ownership, disponibilidad, paginacion |
 | ServicioServiceTest | 9 | CRUD, soft delete |
-| JwtServiceTest | 8 | Generar/extraer/validar tokens, firmas |
+| JwtServiceTest | 9 | Generar/extraer/validar tokens, firmas, tokenVersion |
 | AuthControllerTest | 5 | Login, registro, credenciales invalidas |
 | CustomUserDetailsServiceTest | 4 | Carga de usuario, roles, estado |
-| JwtAuthenticationFilterTest | 5 | Filtro con/sin token, token invalido/expirado |
+| JwtAuthenticationFilterTest | 7 | Filtro con/sin token, token invalido/expirado, cuenta desactivada, tokenVersion |
 
 Para ejecutar los tests:
 ```bash
@@ -183,6 +184,8 @@ Para ejecutar los tests:
 
     *(Nota: El perfil `dev` usa `ddl-auto=update`, que crea y actualiza las tablas automaticamente al iniciar.)*
 
+    *(Despliegue a `prod`: el perfil usa `ddl-auto=validate` (no modifica el esquema). Como aun no hay migraciones (Flyway), al desplegar por primera vez hay que crear a mano la columna de revocacion de tokens: `ALTER TABLE usuarios ADD COLUMN token_version integer NOT NULL DEFAULT 1;`)*
+
     *(Opcional: el horario laboral se puede ajustar con `peluqueria.horario.apertura` y `peluqueria.horario.cierre` en `application.properties`. Por defecto 09:00-20:00.)*
 
 4.  **Ejecutar la aplicacion:**
@@ -216,7 +219,7 @@ Para ejecutar los tests:
 - [x] Autenticacion JWT y autorizacion por roles (USER/ADMIN).
 - [x] Constructor injection y eliminacion de `@Data` en entidades JPA.
 - [x] Reestructuracion de paquetes por dominio (usuario, cita, servicio, auth, security).
-- [x] Suite de 81 unit tests (services, security, controller).
+- [x] Suite de 88 unit tests (services, security, controller).
 - [x] Configuracion de CORS por perfil (origenes externalizados a `CORS_ALLOWED_ORIGINS` en prod).
 - [x] Endpoint para que un ADMIN cambie el rol de un usuario (con guard anti-lockout).
 - [x] Control de propiedad (ownership) en citas y usuarios; DTOs de respuesta para Cita/Servicio (no se exponen entidades).
@@ -225,7 +228,10 @@ Para ejecutar los tests:
 - [x] Listar/reactivar usuarios desactivados (`?incluirInactivos=true`, `PATCH /{id}/activar`).
 - [x] Logging (SLF4J) y `@Transactional` en la capa de servicio.
 - [x] Documentacion OpenAPI / Swagger UI (springdoc).
-- [ ] Desarrollo del Frontend interactivo consumiendo esta API.
+- [x] Busqueda de usuarios por nombre o email (`?search=`, server-side).
+- [x] Endurecimiento de sesion: expiracion 4h, validacion de cuenta activa por request y revocacion de tokens via `tokenVersion` (al cambiar password o rol).
+- [x] Frontend de administracion (Angular, repositorio aparte) consumiendo esta API.
+- [ ] Backlog (no priorizado): refresh tokens, migraciones con Flyway.
 
 ---
 *Desarrollado por Eduardo Andres Segovia Roman.*

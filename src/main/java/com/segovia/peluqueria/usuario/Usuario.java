@@ -38,14 +38,14 @@ public class Usuario {
     private LocalDate fechaRegistro;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, columnDefinition = "varchar(10) default 'USER'")
+    @Column(nullable = false, length = 10)
     private Rol rol = Rol.USER;
 
-    @Column(nullable = false, columnDefinition = "boolean default true")
+    @Column(nullable = false)
     private Boolean activo = true;
 
     // Se incrementa para invalidar tokens emitidos antes (ej. cambio de password o de rol).
     // El JWT lleva esta version como claim; el filtro la compara con la de BD en cada request.
-    @Column(name = "token_version", nullable = false, columnDefinition = "integer default 1")
+    @Column(name = "token_version", nullable = false)
     private Integer tokenVersion = 1;
 }
