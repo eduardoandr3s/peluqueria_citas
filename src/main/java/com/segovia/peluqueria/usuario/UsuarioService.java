@@ -30,10 +30,15 @@ public class UsuarioService {
     }
 
     @Transactional(readOnly = true)
-    public Page<UsuarioResponseDTO> listarUsuarios(boolean incluirInactivos, Pageable pageable) {
-        Page<Usuario> usuarios = incluirInactivos
-                ? usuarioRepository.findAll(pageable)
-                : usuarioRepository.findByActivoTrue(pageable);
+    public Page<UsuarioResponseDTO> listarUsuarios(boolean incluirInactivos, String search, Pageable pageable) {
+        Page<Usuario> usuarios;
+        if (search == null || search.isBlank()) {
+            usuarios = incluirInactivos
+                    ? usuarioRepository.findAll(pageable)
+                    : usuarioRepository.findByActivoTrue(pageable);
+        } else {
+            usuarios = usuarioRepository.buscar(search.trim(), incluirInactivos, pageable);
+        }
         return usuarios.map(UsuarioResponseDTO::desde);
     }
 

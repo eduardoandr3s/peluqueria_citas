@@ -25,8 +25,9 @@ public class UsuarioController {
     @GetMapping
     public Page<UsuarioResponseDTO> listarUsuarios(
             @RequestParam(name = "incluirInactivos", defaultValue = "false") boolean incluirInactivos,
+            @RequestParam(name = "search", required = false) String search,
             @PageableDefault(size = 20, sort = "nombre") Pageable pageable) {
-        return usuarioService.listarUsuarios(incluirInactivos, pageable);
+        return usuarioService.listarUsuarios(incluirInactivos, search, pageable);
     }
 
     @PostMapping

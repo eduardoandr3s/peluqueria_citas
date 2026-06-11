@@ -146,7 +146,7 @@ class UsuarioServiceTest {
 
         when(usuarioRepository.findByActivoTrue(pageable)).thenReturn(new PageImpl<>(List.of(u1, u2)));
 
-        Page<UsuarioResponseDTO> resultado = usuarioService.listarUsuarios(false, pageable);
+        Page<UsuarioResponseDTO> resultado = usuarioService.listarUsuarios(false, null, pageable);
 
         assertEquals(2, resultado.getTotalElements());
         assertEquals("Carlos", resultado.getContent().get(0).getNombre());
@@ -165,12 +165,60 @@ class UsuarioServiceTest {
 
         when(usuarioRepository.findAll(pageable)).thenReturn(new PageImpl<>(List.of(activo, inactivo)));
 
-        Page<UsuarioResponseDTO> resultado = usuarioService.listarUsuarios(true, pageable);
+        Page<UsuarioResponseDTO> resultado = usuarioService.listarUsuarios(true, null, pageable);
 
         assertEquals(2, resultado.getTotalElements());
         assertFalse(resultado.getContent().get(1).getActivo());
         verify(usuarioRepository).findAll(pageable);
         verify(usuarioRepository, never()).findByActivoTrue(any(Pageable.class));
+    }
+
+    @Test
+    void listarUsuarios_conSearch_usaBuscar() {
+        Usuario u1 = crearUsuarioBase();
+        when(usuarioRepository.buscar("carl", false, pageable))
+                .thenReturn(new PageImpl<>(List.of(u1)));
+
+        Page<UsuarioResponseDTO> resultado = usuarioService.listarUsuarios(false, "carl", pageable);
+
+        assertEquals(1, resultado.getTotalElements());
+        assertEquals("Carlos", resultado.getContent().get(0).getNombre());
+        verify(usuarioRepository).buscar("carl", false, pageable);
+        verify(usuarioRepository, never()).findByActivoTrue(any(Pageable.class));
+        verify(usuarioRepository, never()).findAll(any(Pageable.class));
+    }
+
+    @Test
+    void listarUsuarios_conSearchEIncluirInactivos_usaBuscar() {
+        Usuario u1 = crearUsuarioBase();
+        when(usuarioRepository.buscar("ana", true, pageable))
+                .thenReturn(new PageImpl<>(List.of(u1)));
+
+        usuarioService.listarUsuarios(true, "ana", pageable);
+
+        verify(usuarioRepository).buscar("ana", true, pageable);
+    }
+
+    @Test
+    void listarUsuarios_searchEnBlanco_usaListadoNormal() {
+        when(usuarioRepository.findByActivoTrue(pageable)).thenReturn(new PageImpl<>(List.of()));
+
+        usuarioService.listarUsuarios(false, "   ", pageable);
+
+        // Un search en blanco no debe disparar la busqueda; cae al listado normal.
+        verify(usuarioRepository).findByActivoTrue(pageable);
+        verify(usuarioRepository, never()).buscar(any(), anyBoolean(), any());
+    }
+
+    @Test
+    void listarUsuarios_searchConEspacios_seRecorta() {
+        when(usuarioRepository.buscar("carlos", false, pageable))
+                .thenReturn(new PageImpl<>(List.of(crearUsuarioBase())));
+
+        usuarioService.listarUsuarios(false, "  carlos  ", pageable);
+
+        // El service hace trim() antes de pasar el termino al repositorio.
+        verify(usuarioRepository).buscar("carlos", false, pageable);
     }
 
     @Test

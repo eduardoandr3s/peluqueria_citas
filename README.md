@@ -123,7 +123,7 @@ Para ejecutar los tests:
 ### Usuarios
 | Metodo | Endpoint | Acceso | Descripcion |
 |--------|----------|--------|-------------|
-| GET | `/api/usuarios` | ADMIN | Listar usuarios (paginado). `?incluirInactivos=true` incluye desactivados |
+| GET | `/api/usuarios` | ADMIN | Listar usuarios (paginado). `?incluirInactivos=true` incluye desactivados. `?search=` filtra por nombre o email (contains, case-insensitive, sobre toda la tabla) |
 | GET | `/api/usuarios/{id}` | Propio/ADMIN | Obtener usuario por ID (solo el propio o ADMIN) |
 | POST | `/api/usuarios` | ADMIN | Crear usuario |
 | PUT | `/api/usuarios/{id}` | Propio/ADMIN | Actualizar usuario (solo el propio o ADMIN) |

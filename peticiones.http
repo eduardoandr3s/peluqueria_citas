@@ -157,6 +157,11 @@ Authorization: Bearer {{token}}
 GET http://localhost:8080/api/usuarios?incluirInactivos=true
 Authorization: Bearer {{token}}
 
+### Buscar usuarios por nombre o email (contains, case-insensitive) — solo ADMIN
+### Filtra sobre toda la tabla, no solo la pagina. Combinable con incluirInactivos.
+GET http://localhost:8080/api/usuarios?search=ana&incluirInactivos=true
+Authorization: Bearer {{token}}
+
 ### Reactivar un usuario desactivado — solo ADMIN
 PATCH http://localhost:8080/api/usuarios/4/activar
 Authorization: Bearer {{token}}
