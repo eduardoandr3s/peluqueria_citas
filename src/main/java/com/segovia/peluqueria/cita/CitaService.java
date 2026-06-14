@@ -5,6 +5,9 @@ import com.segovia.peluqueria.cita.dto.CitaResponseDTO;
 import com.segovia.peluqueria.cita.dto.CitaUpdateDTO;
 import com.segovia.peluqueria.exception.ConflictoHorarioException;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
+import com.segovia.peluqueria.notificacion.evento.CitaAgendadaEvent;
+import com.segovia.peluqueria.notificacion.evento.CitaAnuladaEvent;
+import com.segovia.peluqueria.notificacion.evento.CitaModificadaEvent;
 import com.segovia.peluqueria.servicio.Servicio;
 import com.segovia.peluqueria.servicio.ServicioRepository;
 import com.segovia.peluqueria.servicio.dto.ServicioResponseDTO;
@@ -12,6 +15,7 @@ import com.segovia.peluqueria.usuario.Rol;
 import com.segovia.peluqueria.usuario.Usuario;
 import com.segovia.peluqueria.usuario.UsuarioRepository;
 import com.segovia.peluqueria.usuario.dto.UsuarioResponseDTO;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
@@ -34,15 +38,18 @@ public class CitaService {
     private final UsuarioRepository usuarioRepository;
     private final ServicioRepository servicioRepository;
     private final HorarioProperties horario;
+    private final ApplicationEventPublisher eventPublisher;
 
     public CitaService(CitaRepository citaRepository,
                        UsuarioRepository usuarioRepository,
                        ServicioRepository servicioRepository,
-                       HorarioProperties horario) {
+                       HorarioProperties horario,
+                       ApplicationEventPublisher eventPublisher) {
         this.citaRepository = citaRepository;
         this.usuarioRepository = usuarioRepository;
         this.servicioRepository = servicioRepository;
         this.horario = horario;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional(readOnly = true)
@@ -123,7 +130,11 @@ public class CitaService {
         cita.setFechaHora(request.getFechaHora());
         cita.setEstado(EstadoCita.PENDIENTE);
 
-        return mapearAResponseDTO(citaRepository.save(cita));
+        Cita guardada = citaRepository.save(cita);
+        eventPublisher.publishEvent(new CitaAgendadaEvent(
+                usuarioCompleto.getNombre(), usuarioCompleto.getEmail(),
+                servicioCompleto.getNombre(), guardada.getFechaHora()));
+        return mapearAResponseDTO(guardada);
     }
 
     @Transactional(readOnly = true)
@@ -167,7 +178,23 @@ public class CitaService {
             validarConflictoHorario(citaExistente.getFechaHora(), citaExistente.getServicio().getDuracion(), id);
         }
 
-        return mapearAResponseDTO(citaRepository.save(citaExistente));
+        boolean anulada = request.getEstado() == EstadoCita.ANULADA;
+        boolean reprogramada = request.getFechaHora() != null || request.getServicioId() != null;
+
+        Cita guardada = citaRepository.save(citaExistente);
+
+        Usuario cliente = guardada.getUsuario();
+        if (anulada) {
+            eventPublisher.publishEvent(new CitaAnuladaEvent(
+                    cliente.getNombre(), cliente.getEmail(),
+                    guardada.getServicio().getNombre(), guardada.getFechaHora()));
+        } else if (reprogramada) {
+            eventPublisher.publishEvent(new CitaModificadaEvent(
+                    cliente.getNombre(), cliente.getEmail(),
+                    guardada.getServicio().getNombre(), guardada.getFechaHora()));
+        }
+
+        return mapearAResponseDTO(guardada);
     }
 
     @Transactional
@@ -175,7 +202,15 @@ public class CitaService {
         Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
         Cita citaExistente = obtenerEntidadPorId(id);
         verificarAcceso(citaExistente, actual);
+
+        // Capturamos los datos antes de borrar para poder notificar la anulacion.
+        Usuario cliente = citaExistente.getUsuario();
+        CitaAnuladaEvent evento = new CitaAnuladaEvent(
+                cliente.getNombre(), cliente.getEmail(),
+                citaExistente.getServicio().getNombre(), citaExistente.getFechaHora());
+
         citaRepository.delete(citaExistente);
+        eventPublisher.publishEvent(evento);
     }
 
     private Cita obtenerEntidadPorId(Integer id) {

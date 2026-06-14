@@ -5,6 +5,9 @@ import com.segovia.peluqueria.cita.dto.CitaResponseDTO;
 import com.segovia.peluqueria.cita.dto.CitaUpdateDTO;
 import com.segovia.peluqueria.exception.ConflictoHorarioException;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
+import com.segovia.peluqueria.notificacion.evento.CitaAgendadaEvent;
+import com.segovia.peluqueria.notificacion.evento.CitaAnuladaEvent;
+import com.segovia.peluqueria.notificacion.evento.CitaModificadaEvent;
 import com.segovia.peluqueria.servicio.Servicio;
 import com.segovia.peluqueria.servicio.ServicioRepository;
 import com.segovia.peluqueria.usuario.Rol;
@@ -12,6 +15,8 @@ import com.segovia.peluqueria.usuario.Usuario;
 import com.segovia.peluqueria.usuario.UsuarioRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -36,6 +41,7 @@ class CitaServiceTest {
     private CitaRepository citaRepository;
     private UsuarioRepository usuarioRepository;
     private ServicioRepository servicioRepository;
+    private ApplicationEventPublisher eventPublisher;
     private CitaService citaService;
 
     private final Pageable pageable = PageRequest.of(0, 20);
@@ -45,8 +51,9 @@ class CitaServiceTest {
         citaRepository = mock(CitaRepository.class);
         usuarioRepository = mock(UsuarioRepository.class);
         servicioRepository = mock(ServicioRepository.class);
+        eventPublisher = mock(ApplicationEventPublisher.class);
         // HorarioProperties con sus valores por defecto: 09:00 - 20:00.
-        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository, new HorarioProperties());
+        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository, new HorarioProperties(), eventPublisher);
 
         // Por defecto, el usuario autenticado es un ADMIN (acceso total).
         Usuario admin = new Usuario();
@@ -113,6 +120,12 @@ class CitaServiceTest {
         assertEquals(usuario.getIdUsuario(), resultado.getUsuario().getIdUsuario());
         assertEquals(servicio.getIdServicio(), resultado.getServicio().getIdServicio());
         verify(citaRepository).save(any(Cita.class));
+
+        // Debe publicar el evento de cita agendada con los datos para la notificacion.
+        ArgumentCaptor<CitaAgendadaEvent> captor = ArgumentCaptor.forClass(CitaAgendadaEvent.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertEquals(usuario.getEmail(), captor.getValue().clienteEmail());
+        assertEquals(servicio.getNombre(), captor.getValue().servicioNombre());
     }
 
     @Test
@@ -479,6 +492,28 @@ class CitaServiceTest {
 
         assertEquals(proximoLunesALas(14, 0), resultado.getFechaHora());
         verify(citaRepository).contarConflictosExcluyendo(any(), any(), eq(1));
+        verify(eventPublisher).publishEvent(any(CitaModificadaEvent.class));
+    }
+
+    @Test
+    void actualizarCita_anula_publicaEventoAnulada() {
+        Cita citaExistente = new Cita();
+        citaExistente.setIdCita(1);
+        citaExistente.setEstado(EstadoCita.PENDIENTE);
+        citaExistente.setFechaHora(proximoLunesALas(10, 0));
+        citaExistente.setServicio(crearServicioActivo());
+        citaExistente.setUsuario(crearUsuarioActivo());
+
+        when(citaRepository.findById(1)).thenReturn(Optional.of(citaExistente));
+        when(citaRepository.save(any(Cita.class))).thenAnswer(i -> i.getArgument(0));
+
+        CitaUpdateDTO request = new CitaUpdateDTO();
+        request.setEstado(EstadoCita.ANULADA);
+
+        citaService.actualizarCita(1, request, EMAIL_ADMIN);
+
+        verify(eventPublisher).publishEvent(any(CitaAnuladaEvent.class));
+        verify(eventPublisher, never()).publishEvent(any(CitaModificadaEvent.class));
     }
 
     @Test
@@ -495,11 +530,16 @@ class CitaServiceTest {
     void eliminarCita_exitoso() {
         Cita cita = new Cita();
         cita.setIdCita(1);
+        // Una cita real siempre tiene usuario y servicio (FKs NOT NULL); necesarios para el evento de anulacion.
+        cita.setUsuario(crearUsuarioActivo());
+        cita.setServicio(crearServicioActivo());
+        cita.setFechaHora(LocalDateTime.now().plusDays(1));
         when(citaRepository.findById(1)).thenReturn(Optional.of(cita));
 
         citaService.eliminarCita(1, EMAIL_ADMIN);
 
         verify(citaRepository).delete(cita);
+        verify(eventPublisher).publishEvent(any(CitaAnuladaEvent.class));
     }
 
     @Test
