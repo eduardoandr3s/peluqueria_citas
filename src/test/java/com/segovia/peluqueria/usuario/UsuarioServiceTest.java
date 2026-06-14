@@ -1,11 +1,14 @@
 package com.segovia.peluqueria.usuario;
 
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
+import com.segovia.peluqueria.notificacion.evento.PasswordCambiadaEvent;
+import com.segovia.peluqueria.notificacion.evento.UsuarioRegistradoEvent;
 import com.segovia.peluqueria.usuario.dto.UsuarioRequestDTO;
 import com.segovia.peluqueria.usuario.dto.UsuarioResponseDTO;
 import com.segovia.peluqueria.usuario.dto.UsuarioUpdateDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -26,6 +29,7 @@ class UsuarioServiceTest {
 
     private UsuarioRepository usuarioRepository;
     private PasswordEncoder passwordEncoder;
+    private ApplicationEventPublisher eventPublisher;
     private UsuarioService usuarioService;
 
     private final Pageable pageable = PageRequest.of(0, 20);
@@ -34,7 +38,8 @@ class UsuarioServiceTest {
     void setUp() {
         usuarioRepository = mock(UsuarioRepository.class);
         passwordEncoder = mock(PasswordEncoder.class);
-        usuarioService = new UsuarioService(usuarioRepository, passwordEncoder);
+        eventPublisher = mock(ApplicationEventPublisher.class);
+        usuarioService = new UsuarioService(usuarioRepository, passwordEncoder, eventPublisher);
 
         // Por defecto, el usuario autenticado es un ADMIN (acceso total).
         Usuario admin = new Usuario();
@@ -80,6 +85,7 @@ class UsuarioServiceTest {
         assertEquals("carlos@test.com", resultado.getEmail());
         verify(passwordEncoder).encode("password123");
         verify(usuarioRepository).save(any(Usuario.class));
+        verify(eventPublisher).publishEvent(any(UsuarioRegistradoEvent.class));
     }
 
     @Test
@@ -279,6 +285,7 @@ class UsuarioServiceTest {
 
         assertEquals("nuevaEncriptada", usuario.getPassword());
         verify(passwordEncoder).encode("nuevaPassword");
+        verify(eventPublisher).publishEvent(any(PasswordCambiadaEvent.class));
     }
 
     @Test

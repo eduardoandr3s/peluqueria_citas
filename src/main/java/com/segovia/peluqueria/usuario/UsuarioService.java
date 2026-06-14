@@ -1,11 +1,14 @@
 package com.segovia.peluqueria.usuario;
 
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
+import com.segovia.peluqueria.notificacion.evento.PasswordCambiadaEvent;
+import com.segovia.peluqueria.notificacion.evento.UsuarioRegistradoEvent;
 import com.segovia.peluqueria.usuario.dto.UsuarioRequestDTO;
 import com.segovia.peluqueria.usuario.dto.UsuarioResponseDTO;
 import com.segovia.peluqueria.usuario.dto.UsuarioUpdateDTO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
@@ -22,11 +25,14 @@ public class UsuarioService {
 
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
+    private final ApplicationEventPublisher eventPublisher;
 
     public UsuarioService(UsuarioRepository usuarioRepository,
-                          PasswordEncoder passwordEncoder) {
+                          PasswordEncoder passwordEncoder,
+                          ApplicationEventPublisher eventPublisher) {
         this.usuarioRepository = usuarioRepository;
         this.passwordEncoder = passwordEncoder;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional(readOnly = true)
@@ -59,6 +65,8 @@ public class UsuarioService {
         nuevoUsuario.setFechaRegistro(LocalDate.now());
 
         Usuario usuarioGuardado = usuarioRepository.save(nuevoUsuario);
+        eventPublisher.publishEvent(
+                new UsuarioRegistradoEvent(usuarioGuardado.getNombre(), usuarioGuardado.getEmail()));
 
         return UsuarioResponseDTO.desde(usuarioGuardado);
     }
@@ -103,13 +111,19 @@ public class UsuarioService {
             usuarioExistente.setTelefono(request.getTelefono());
         }
 
-        if (request.getPassword() != null && !request.getPassword().isEmpty()) {
+        boolean passwordCambiada = request.getPassword() != null && !request.getPassword().isEmpty();
+        if (passwordCambiada) {
             usuarioExistente.setPassword(passwordEncoder.encode(request.getPassword()));
             // Al cambiar la password invalidamos los tokens emitidos antes (posible robo de sesion).
             usuarioExistente.setTokenVersion(usuarioExistente.getTokenVersion() + 1);
         }
 
         Usuario usuarioGuardado = usuarioRepository.save(usuarioExistente);
+
+        if (passwordCambiada) {
+            eventPublisher.publishEvent(
+                    new PasswordCambiadaEvent(usuarioGuardado.getNombre(), usuarioGuardado.getEmail()));
+        }
 
         return UsuarioResponseDTO.desde(usuarioGuardado);
     }
