@@ -4,6 +4,7 @@ import com.segovia.peluqueria.notificacion.evento.CitaAgendadaEvent;
 import com.segovia.peluqueria.notificacion.evento.CitaAnuladaEvent;
 import com.segovia.peluqueria.notificacion.evento.CitaModificadaEvent;
 import com.segovia.peluqueria.notificacion.evento.PasswordCambiadaEvent;
+import com.segovia.peluqueria.notificacion.evento.PasswordResetSolicitadoEvent;
 import com.segovia.peluqueria.notificacion.evento.UsuarioRegistradoEvent;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -61,6 +62,12 @@ public class NotificacionEmailListener {
     public void onPasswordCambiada(PasswordCambiadaEvent e) {
         email.enviarHtml(e.email(), "Tu contrasena ha sido modificada", "password-cambiada",
                 Map.of("nombre", e.nombre()));
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onPasswordResetSolicitado(PasswordResetSolicitadoEvent e) {
+        email.enviarHtml(e.email(), "Restablece tu contrasena", "recuperar-password",
+                Map.of("nombre", e.nombre(), "enlace", e.enlace()));
     }
 
     private void notificarCita(String nombre, String emailCliente, String servicio,
