@@ -111,6 +111,13 @@ Para ejecutar los tests:
 |--------|----------|-------------|
 | POST | `/api/auth/registro` | Registrar nuevo usuario |
 | POST | `/api/auth/login` | Iniciar sesion (devuelve token JWT) |
+| POST | `/api/auth/recuperar` | Solicitar enlace de recuperacion de contrasena (responde 200 siempre, anti-enumeracion) |
+| POST | `/api/auth/reset` | Restablecer la contrasena con el token recibido por correo (un solo uso, caduca) |
+
+> Los endpoints de recuperacion estan limitados por IP (rate limiting con Bucket4j):
+> por defecto 5 peticiones cada 15 minutos. Al superarlo responden 429. Configurable con
+> `RESET_EXPIRACION_MINUTOS`, `RATELIMIT_RESET_CAPACIDAD` y `RATELIMIT_RESET_VENTANA_MINUTOS`.
+> El enlace del correo apunta a `FRONTEND_URL` + `/reset?token=...`.
 
 ### Servicios
 | Metodo | Endpoint | Acceso | Descripcion |
