@@ -1,0 +1,14 @@
+# El build se hace dentro de la imagen (mvn package). Solo se necesitan pom.xml
+# y src; todo lo demas se excluye del contexto para acelerar el envio a Cloud Build.
+target/
+.git/
+.gitignore
+.idea/
+*.iml
+.mvn/
+mvnw
+mvnw.cmd
+README.md
+PLAN.md
+peticiones.http
+*.md
