@@ -35,6 +35,11 @@ public class UsuarioController {
         return usuarioService.crearUsuario(requestDTO);
     }
 
+    @GetMapping("/me")
+    public UsuarioResponseDTO obtenerUsuarioActual(Authentication authentication){
+        return usuarioService.obtenerUsuarioActual(authentication.getName());
+    }
+
     @GetMapping("/{id}")
     public UsuarioResponseDTO obtenerUsuarioPorId(@PathVariable Integer id, Authentication authentication){
         return usuarioService.obtenerUsuarioPorId(id, authentication.getName());

@@ -93,6 +93,15 @@ public class UsuarioService {
         return UsuarioResponseDTO.desde(usuario);
     }
 
+    // Datos del usuario autenticado (GET /api/usuarios/me): se resuelve por el email del token,
+    // sin necesidad de que el cliente conozca su propio id.
+    @Transactional(readOnly = true)
+    public UsuarioResponseDTO obtenerUsuarioActual(String emailAutenticado){
+        Usuario usuario = usuarioRepository.findByEmail(emailAutenticado)
+                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con email: " + emailAutenticado));
+        return UsuarioResponseDTO.desde(usuario);
+    }
+
     @Transactional
     public UsuarioResponseDTO actualizarUsuario(Integer id, UsuarioUpdateDTO request, String emailAutenticado) {
         verificarAcceso(id, emailAutenticado);

@@ -2,6 +2,8 @@ package com.segovia.peluqueria.auth;
 
 import com.segovia.peluqueria.auth.dto.AuthResponseDTO;
 import com.segovia.peluqueria.auth.dto.LoginRequestDTO;
+import com.segovia.peluqueria.auth.dto.RefreshRequestDTO;
+import com.segovia.peluqueria.exception.InvalidRefreshTokenException;
 import com.segovia.peluqueria.security.JwtService;
 import com.segovia.peluqueria.usuario.Usuario;
 import com.segovia.peluqueria.usuario.UsuarioRepository;
@@ -24,6 +26,7 @@ class AuthControllerTest {
     private UsuarioRepository usuarioRepository;
     private PasswordEncoder passwordEncoder;
     private JwtService jwtService;
+    private RefreshTokenService refreshTokenService;
     private AuthController authController;
 
     @BeforeEach
@@ -32,7 +35,9 @@ class AuthControllerTest {
         usuarioRepository = mock(UsuarioRepository.class);
         passwordEncoder = mock(PasswordEncoder.class);
         jwtService = mock(JwtService.class);
-        authController = new AuthController(usuarioService, usuarioRepository, passwordEncoder, jwtService);
+        refreshTokenService = mock(RefreshTokenService.class);
+        authController = new AuthController(usuarioService, usuarioRepository, passwordEncoder,
+                jwtService, refreshTokenService);
     }
 
     private Usuario crearUsuarioActivo() {
@@ -75,13 +80,56 @@ class AuthControllerTest {
         when(usuarioRepository.findByEmail("carlos@test.com")).thenReturn(Optional.of(usuario));
         when(passwordEncoder.matches("password123", "encriptada123")).thenReturn(true);
         when(jwtService.generarToken("carlos@test.com", "USER", 1, 1)).thenReturn("token.jwt.generado");
+        when(refreshTokenService.emitirNuevaFamilia(usuario)).thenReturn("refresh.generado");
 
         AuthResponseDTO resultado = authController.login(request);
 
         assertEquals("token.jwt.generado", resultado.getToken());
+        assertEquals("refresh.generado", resultado.getRefreshToken());
         assertEquals("carlos@test.com", resultado.getEmail());
         assertEquals("Carlos", resultado.getNombre());
         assertEquals("USER", resultado.getRol());
+    }
+
+    @Test
+    void refresh_exitoso_rotaYDevuelveNuevosTokens() {
+        RefreshRequestDTO request = new RefreshRequestDTO();
+        request.setRefreshToken("refresh.viejo");
+
+        Usuario usuario = crearUsuarioActivo();
+        when(refreshTokenService.rotar("refresh.viejo"))
+                .thenReturn(new RefreshTokenService.RotacionResult(usuario, "refresh.nuevo"));
+        when(jwtService.generarToken("carlos@test.com", "USER", 1, 1)).thenReturn("access.nuevo");
+
+        AuthResponseDTO resultado = authController.refresh(request);
+
+        assertEquals("access.nuevo", resultado.getToken());
+        assertEquals("refresh.nuevo", resultado.getRefreshToken());
+        assertEquals("carlos@test.com", resultado.getEmail());
+    }
+
+    @Test
+    void refresh_usuarioInactivo_lanzaInvalidRefreshToken() {
+        RefreshRequestDTO request = new RefreshRequestDTO();
+        request.setRefreshToken("refresh.viejo");
+
+        Usuario usuario = crearUsuarioActivo();
+        usuario.setActivo(false);
+        when(refreshTokenService.rotar("refresh.viejo"))
+                .thenReturn(new RefreshTokenService.RotacionResult(usuario, "refresh.nuevo"));
+
+        assertThrows(InvalidRefreshTokenException.class, () -> authController.refresh(request));
+        verify(jwtService, never()).generarToken(any(), any(), any(), any());
+    }
+
+    @Test
+    void logout_revocaElRefreshToken() {
+        RefreshRequestDTO request = new RefreshRequestDTO();
+        request.setRefreshToken("refresh.a.revocar");
+
+        authController.logout(request);
+
+        verify(refreshTokenService).revocar("refresh.a.revocar");
     }
 
     @Test

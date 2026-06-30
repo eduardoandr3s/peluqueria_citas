@@ -64,6 +64,26 @@ class UsuarioServiceTest {
     }
 
     @Test
+    void obtenerUsuarioActual_devuelveLosDatosDelEmailAutenticado() {
+        Usuario carlos = crearUsuarioBase();
+        when(usuarioRepository.findByEmail("carlos@test.com")).thenReturn(Optional.of(carlos));
+
+        UsuarioResponseDTO resultado = usuarioService.obtenerUsuarioActual("carlos@test.com");
+
+        assertEquals(1, resultado.getIdUsuario());
+        assertEquals("carlos@test.com", resultado.getEmail());
+        assertEquals(Rol.USER, resultado.getRol());
+    }
+
+    @Test
+    void obtenerUsuarioActual_emailInexistente_lanzaNotFound() {
+        when(usuarioRepository.findByEmail("fantasma@test.com")).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> usuarioService.obtenerUsuarioActual("fantasma@test.com"));
+    }
+
+    @Test
     void crearUsuario_exitoso() {
         UsuarioRequestDTO request = new UsuarioRequestDTO();
         request.setNombre("Carlos");

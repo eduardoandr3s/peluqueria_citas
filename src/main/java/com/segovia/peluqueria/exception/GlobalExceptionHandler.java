@@ -59,6 +59,16 @@ public class GlobalExceptionHandler {
         return error;
     }
 
+    // Refresh token invalido (caducado, ya rotado/reusado, o credenciales cambiadas): el cliente
+    // debe volver a iniciar sesion. 401 lo distingue del 403 de "sin permiso".
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    @ExceptionHandler(InvalidRefreshTokenException.class)
+    public Map<String, String> manejarRefreshTokenInvalido(InvalidRefreshTokenException ex) {
+        Map<String, String> error = new HashMap<>();
+        error.put("error", ex.getMessage());
+        return error;
+    }
+
     // Captura cuando se intenta agendar una cita en un horario ya ocupado
     @ResponseStatus(HttpStatus.CONFLICT)
     @ExceptionHandler(ConflictoHorarioException.class)
