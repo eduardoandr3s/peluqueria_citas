@@ -74,6 +74,12 @@ public class SecurityConfig {
 
                         .requestMatchers("/api/citas/**").authenticated()
 
+                        .requestMatchers("/api/pagos/webhook").permitAll()
+                        .requestMatchers("/api/pagos/crear-intent").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/pagos/**").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/pagos/manual").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/pagos/*/reembolsar").hasRole("ADMIN")
+
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
