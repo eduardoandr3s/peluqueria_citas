@@ -3,6 +3,7 @@ package com.segovia.peluqueria.notificacion;
 import com.segovia.peluqueria.notificacion.evento.CitaAgendadaEvent;
 import com.segovia.peluqueria.notificacion.evento.CitaAnuladaEvent;
 import com.segovia.peluqueria.notificacion.evento.CitaModificadaEvent;
+import com.segovia.peluqueria.notificacion.evento.PagoConfirmadoEvent;
 import com.segovia.peluqueria.notificacion.evento.PasswordCambiadaEvent;
 import com.segovia.peluqueria.notificacion.evento.PasswordResetSolicitadoEvent;
 import com.segovia.peluqueria.notificacion.evento.UsuarioRegistradoEvent;
@@ -50,6 +51,11 @@ public class NotificacionEmailListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onCitaAnulada(CitaAnuladaEvent e) {
         notificarCita(e.clienteNombre(), e.clienteEmail(), e.servicioNombre(), e.fechaHora(), "anulada");
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onPagoConfirmado(PagoConfirmadoEvent e) {
+        notificarCita(e.clienteNombre(), e.clienteEmail(), e.servicioNombre(), e.fechaHora(), "confirmada");
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)

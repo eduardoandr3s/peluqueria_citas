@@ -4,130 +4,172 @@ import com.segovia.peluqueria.cita.Cita;
 import com.segovia.peluqueria.cita.CitaRepository;
 import com.segovia.peluqueria.cita.EstadoCita;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
+import com.segovia.peluqueria.notificacion.evento.PagoConfirmadoEvent;
+import com.segovia.peluqueria.pago.PaymentGateway.EventoPasarela;
+import com.segovia.peluqueria.pago.PaymentGateway.IntentPasarela;
 import com.segovia.peluqueria.pago.dto.PagoResponseDTO;
 import com.segovia.peluqueria.pago.dto.PaymentIntentResponseDTO;
 import com.segovia.peluqueria.usuario.Rol;
 import com.segovia.peluqueria.usuario.Usuario;
 import com.segovia.peluqueria.usuario.UsuarioRepository;
-import com.stripe.exception.SignatureVerificationException;
-import com.stripe.exception.StripeException;
-import com.stripe.model.Event;
-import com.stripe.model.EventDataObjectDeserializer;
-import com.stripe.model.PaymentIntent;
-import com.stripe.model.Refund;
-import com.stripe.model.StripeObject;
-import com.stripe.net.Webhook;
-import com.stripe.param.PaymentIntentCreateParams;
-import com.stripe.param.RefundCreateParams;
-import org.springframework.beans.factory.annotation.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Set;
 
+/**
+ * Gestion de pagos de citas. El pago online usa PaymentIntents a traves del puerto
+ * {@link PaymentGateway}; la fuente de verdad del cobro es SIEMPRE el webhook, nunca el
+ * redirect del navegador (el cliente puede cerrar la pestana tras pagar y no volver).
+ *
+ * <p>Politica de reembolso: reembolsar NO anula la cita. Son decisiones separadas: el
+ * administrador reembolsa aqui y, si procede, anula la cita desde el API de citas (lo que
+ * ademas notifica al cliente por el flujo de eventos de cita).
+ */
 @Service
 public class PagoService {
+
+    private static final Logger log = LoggerFactory.getLogger(PagoService.class);
+
+    private static final String INTENT_COMPLETADO = "payment_intent.succeeded";
+    private static final String INTENT_FALLIDO = "payment_intent.payment_failed";
+    private static final String INTENT_CANCELADO = "payment_intent.canceled";
+    private static final Set<String> TIPOS_GESTIONADOS =
+            Set.of(INTENT_COMPLETADO, INTENT_FALLIDO, INTENT_CANCELADO);
 
     private final PagoRepository pagoRepository;
     private final CitaRepository citaRepository;
     private final UsuarioRepository usuarioRepository;
-
-    @Value("${stripe.webhook-secret}")
-    private String webhookSecret;
+    private final StripeEventoRepository stripeEventoRepository;
+    private final PaymentGateway paymentGateway;
+    private final ApplicationEventPublisher eventPublisher;
 
     public PagoService(PagoRepository pagoRepository,
                        CitaRepository citaRepository,
-                       UsuarioRepository usuarioRepository) {
+                       UsuarioRepository usuarioRepository,
+                       StripeEventoRepository stripeEventoRepository,
+                       PaymentGateway paymentGateway,
+                       ApplicationEventPublisher eventPublisher) {
         this.pagoRepository = pagoRepository;
         this.citaRepository = citaRepository;
         this.usuarioRepository = usuarioRepository;
+        this.stripeEventoRepository = stripeEventoRepository;
+        this.paymentGateway = paymentGateway;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
     public PaymentIntentResponseDTO crearPaymentIntent(Integer citaId, String emailAutenticado) {
         Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
-        Cita cita = citaRepository.findById(citaId)
-                .orElseThrow(() -> new ResourceNotFoundException("Cita no encontrada con ID: " + citaId));
+        Cita cita = obtenerCitaPorId(citaId);
         verificarAcceso(cita, actual);
 
         if (cita.getEstado() == EstadoCita.ANULADA) {
             throw new IllegalArgumentException("No se puede pagar una cita anulada.");
         }
 
-        if (pagoRepository.findByCitaIdCita(citaId).isPresent()) {
-            throw new IllegalArgumentException("Esta cita ya tiene un registro de pago.");
-        }
-
-        try {
-            BigDecimal monto = cita.getServicio().getPrecio();
-            long montoCentavos = monto.multiply(BigDecimal.valueOf(100)).longValue();
-
-            PaymentIntentCreateParams params = PaymentIntentCreateParams.builder()
-                    .setAmount(montoCentavos)
-                    .setCurrency("eur")
-                    .setDescription("Pago cita " + cita.getServicio().getNombre() + " - " + cita.getUsuario().getNombre())
-                    .setAutomaticPaymentMethods(
-                            PaymentIntentCreateParams.AutomaticPaymentMethods.builder()
-                                    .setEnabled(true)
-                                    .build()
-                    )
-                    .build();
-
-            PaymentIntent intent = PaymentIntent.create(params);
-
-            Pago pago = new Pago();
+        Pago pago = pagoRepository.findByCitaIdCita(citaId).orElse(null);
+        if (pago != null) {
+            if (pago.getEstadoPago() == EstadoPago.PAGADO || pago.getEstadoPago() == EstadoPago.REEMBOLSADO) {
+                throw new IllegalArgumentException("Esta cita ya tiene un pago registrado.");
+            }
+            // Un intento abandonado no bloquea la cita: si el intent sigue vivo se reutiliza
+            // (mismo client_secret); si murio en Stripe, se crea otro sobre el mismo registro.
+            if (pago.getEstadoPago() == EstadoPago.PENDIENTE && pago.getReferenciaExterna() != null) {
+                IntentPasarela existente = paymentGateway.recuperarIntent(pago.getReferenciaExterna());
+                if ("succeeded".equals(existente.estado())) {
+                    throw new IllegalArgumentException(
+                            "El pago ya se ha completado; la confirmacion llegara en breve.");
+                }
+                if (!"canceled".equals(existente.estado())) {
+                    return respuesta(existente, pago);
+                }
+            }
+        } else {
+            pago = new Pago();
             pago.setCita(cita);
-            pago.setMonto(monto);
-            pago.setMetodoPago(MetodoPago.TARJETA);
-            pago.setEstadoPago(EstadoPago.PENDIENTE);
-            pago.setReferenciaExterna(intent.getId());
             pago.setFechaCreacion(LocalDateTime.now());
-            pagoRepository.save(pago);
-
-            PaymentIntentResponseDTO response = new PaymentIntentResponseDTO();
-            response.setClientSecret(intent.getClientSecret());
-            response.setPaymentIntentId(intent.getId());
-            response.setPagoId(pago.getIdPago());
-            return response;
-
-        } catch (StripeException e) {
-            throw new RuntimeException("Error al crear el pago con Stripe: " + e.getMessage(), e);
         }
+
+        BigDecimal monto = cita.getServicio().getPrecio();
+        IntentPasarela intent = paymentGateway.crearIntent(
+                monto,
+                "Pago cita " + cita.getServicio().getNombre() + " - " + cita.getUsuario().getNombre(),
+                citaId);
+
+        pago.setMonto(monto);
+        pago.setMetodoPago(MetodoPago.TARJETA);
+        pago.setEstadoPago(EstadoPago.PENDIENTE);
+        pago.setReferenciaExterna(intent.id());
+        pagoRepository.save(pago);
+
+        return respuesta(intent, pago);
     }
 
     @Transactional
     public void procesarWebhook(String payload, String sigHeader) {
-        Event event;
-        try {
-            event = Webhook.constructEvent(payload, sigHeader, webhookSecret);
-        } catch (SignatureVerificationException e) {
-            throw new IllegalArgumentException("Firma del webhook invalida.", e);
-        }
+        EventoPasarela evento = paymentGateway.validarWebhook(payload, sigHeader);
 
-        if (!"payment_intent.succeeded".equals(event.getType())) {
+        if (stripeEventoRepository.existsById(evento.id())) {
+            log.info("Webhook duplicado ignorado: {} ({})", evento.id(), evento.tipo());
             return;
         }
 
-        EventDataObjectDeserializer deserializer = event.getDataObjectDeserializer();
-        if (!deserializer.getObject().isPresent()) {
+        if (!TIPOS_GESTIONADOS.contains(evento.tipo())) {
+            log.debug("Webhook de tipo no gestionado: {}", evento.tipo());
             return;
         }
 
-        StripeObject stripeObject = deserializer.getObject().get();
-        PaymentIntent intent = (PaymentIntent) stripeObject;
+        if (evento.paymentIntentId() == null) {
+            // Sin registrar el evento: si Stripe lo reenvia (o se reenvia a mano tras corregir
+            // el desfase de version del API) se vuelve a intentar.
+            log.error("Webhook {} ({}) sin PaymentIntent deserializable; no se procesa.",
+                    evento.id(), evento.tipo());
+            return;
+        }
 
-        Pago pago = pagoRepository.findByReferenciaExterna(intent.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("Pago no encontrado con referencia: " + intent.getId()));
+        switch (evento.tipo()) {
+            case INTENT_COMPLETADO -> confirmarPagoOnline(evento.paymentIntentId());
+            case INTENT_CANCELADO -> cancelarPagoOnline(evento.paymentIntentId());
+            case INTENT_FALLIDO -> log.info(
+                    "Intento de pago fallido para {}: el cliente puede reintentar con el mismo intent.",
+                    evento.paymentIntentId());
+            default -> throw new IllegalStateException("Tipo no esperado: " + evento.tipo());
+        }
 
-        pago.setEstadoPago(EstadoPago.PAGADO);
-        pago.setFechaPago(LocalDateTime.now());
+        stripeEventoRepository.save(new StripeEvento(evento.id(), evento.tipo(), LocalDateTime.now()));
+    }
+
+    /** El intent se completo en Stripe: marca el pago, confirma la cita y notifica por correo. */
+    private void confirmarPagoOnline(String paymentIntentId) {
+        Pago pago = pagoRepository.findByReferenciaExterna(paymentIntentId).orElse(null);
+        if (pago == null) {
+            // Puede ser un intent de otro entorno que comparte la cuenta de Stripe: se responde
+            // 200 igualmente para que Stripe no reintente durante dias.
+            log.warn("Webhook de pago completado sin pago asociado a la referencia {}.", paymentIntentId);
+            return;
+        }
+        if (pago.getEstadoPago() == EstadoPago.PAGADO) {
+            return;
+        }
+        marcarPagadoYConfirmarCita(pago);
+    }
+
+    private void cancelarPagoOnline(String paymentIntentId) {
+        Pago pago = pagoRepository.findByReferenciaExterna(paymentIntentId).orElse(null);
+        if (pago == null || pago.getEstadoPago() != EstadoPago.PENDIENTE) {
+            return;
+        }
+        pago.setEstadoPago(EstadoPago.CANCELADO);
         pagoRepository.save(pago);
-
-        Cita cita = pago.getCita();
-        cita.setEstado(EstadoCita.CONFIRMADA);
-        citaRepository.save(cita);
+        log.info("Pago {} cancelado: el intent {} expiro o fue cancelado en Stripe.",
+                pago.getIdPago(), paymentIntentId);
     }
 
     @Transactional
@@ -137,28 +179,31 @@ public class PagoService {
             throw new AccessDeniedException("Solo un administrador puede registrar pagos manuales.");
         }
 
-        Cita cita = citaRepository.findById(citaId)
-                .orElseThrow(() -> new ResourceNotFoundException("Cita no encontrada con ID: " + citaId));
-
-        if (pagoRepository.findByCitaIdCita(citaId).isPresent()) {
-            throw new IllegalArgumentException("Esta cita ya tiene un registro de pago.");
-        }
-
+        Cita cita = obtenerCitaPorId(citaId);
         if (cita.getEstado() == EstadoCita.ANULADA) {
             throw new IllegalArgumentException("No se puede pagar una cita anulada.");
         }
 
-        Pago pago = new Pago();
-        pago.setCita(cita);
+        Pago pago = pagoRepository.findByCitaIdCita(citaId).orElse(null);
+        if (pago != null) {
+            if (pago.getEstadoPago() == EstadoPago.PAGADO || pago.getEstadoPago() == EstadoPago.REEMBOLSADO) {
+                throw new IllegalArgumentException("Esta cita ya tiene un pago registrado.");
+            }
+            // Un intento online abandonado no debe bloquear el cobro en el local. Se cancela el
+            // intent en Stripe (evita un doble cobro si el cliente completara el pago online
+            // despues) y se reutiliza el registro.
+            if (pago.getEstadoPago() == EstadoPago.PENDIENTE && pago.getReferenciaExterna() != null) {
+                paymentGateway.cancelarIntent(pago.getReferenciaExterna());
+            }
+        } else {
+            pago = new Pago();
+            pago.setCita(cita);
+            pago.setFechaCreacion(LocalDateTime.now());
+        }
+
         pago.setMonto(cita.getServicio().getPrecio());
         pago.setMetodoPago(metodoPago);
-        pago.setEstadoPago(EstadoPago.PAGADO);
-        pago.setFechaCreacion(LocalDateTime.now());
-        pago.setFechaPago(LocalDateTime.now());
-        pagoRepository.save(pago);
-
-        cita.setEstado(EstadoCita.CONFIRMADA);
-        citaRepository.save(cita);
+        marcarPagadoYConfirmarCita(pago);
 
         return PagoResponseDTO.desde(pago);
     }
@@ -166,8 +211,7 @@ public class PagoService {
     @Transactional(readOnly = true)
     public PagoResponseDTO obtenerPagoPorCita(Integer citaId, String emailAutenticado) {
         Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
-        Cita cita = citaRepository.findById(citaId)
-                .orElseThrow(() -> new ResourceNotFoundException("Cita no encontrada con ID: " + citaId));
+        Cita cita = obtenerCitaPorId(citaId);
         verificarAcceso(cita, actual);
 
         Pago pago = pagoRepository.findByCitaIdCita(citaId)
@@ -190,18 +234,35 @@ public class PagoService {
         }
 
         if (pago.getMetodoPago() == MetodoPago.TARJETA && pago.getReferenciaExterna() != null) {
-            try {
-                RefundCreateParams params = RefundCreateParams.builder()
-                        .setPaymentIntent(pago.getReferenciaExterna())
-                        .build();
-                Refund.create(params);
-            } catch (StripeException e) {
-                throw new RuntimeException("Error al reembolsar en Stripe: " + e.getMessage(), e);
-            }
+            paymentGateway.reembolsar(pago.getReferenciaExterna());
         }
 
         pago.setEstadoPago(EstadoPago.REEMBOLSADO);
         pagoRepository.save(pago);
+    }
+
+    private void marcarPagadoYConfirmarCita(Pago pago) {
+        pago.setEstadoPago(EstadoPago.PAGADO);
+        pago.setFechaPago(LocalDateTime.now());
+        pagoRepository.save(pago);
+
+        Cita cita = pago.getCita();
+        cita.setEstado(EstadoCita.CONFIRMADA);
+        citaRepository.save(cita);
+
+        eventPublisher.publishEvent(new PagoConfirmadoEvent(
+                cita.getUsuario().getNombre(),
+                cita.getUsuario().getEmail(),
+                cita.getServicio().getNombre(),
+                cita.getFechaHora()));
+    }
+
+    private PaymentIntentResponseDTO respuesta(IntentPasarela intent, Pago pago) {
+        PaymentIntentResponseDTO response = new PaymentIntentResponseDTO();
+        response.setClientSecret(intent.clientSecret());
+        response.setPaymentIntentId(intent.id());
+        response.setPagoId(pago.getIdPago());
+        return response;
     }
 
     private Cita obtenerCitaPorId(Integer id) {
@@ -214,12 +275,8 @@ public class PagoService {
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con email: " + email));
     }
 
-    private boolean esAdmin(Usuario usuario) {
-        return usuario.getRol() == Rol.ADMIN;
-    }
-
     private void verificarAcceso(Cita cita, Usuario actual) {
-        if (!esAdmin(actual) && !cita.getUsuario().getIdUsuario().equals(actual.getIdUsuario())) {
+        if (actual.getRol() != Rol.ADMIN && !cita.getUsuario().getIdUsuario().equals(actual.getIdUsuario())) {
             throw new AccessDeniedException("No tienes permiso para acceder a este recurso.");
         }
     }
