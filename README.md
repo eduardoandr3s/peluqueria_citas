@@ -33,7 +33,8 @@ Este repositorio contiene el backend de un sistema integral de gestion de citas 
 * **Documentacion OpenAPI / Swagger UI:** Generada automaticamente con springdoc-openapi. Disponible en `/swagger-ui.html` y `/v3/api-docs`.
 * **Perfiles de Configuracion:** Separacion entre entorno de desarrollo (`dev`) y produccion (`prod`) con configuraciones especificas para cada uno.
 * **Tipado Estricto con Enums:** Estado de citas (`PENDIENTE`, `CONFIRMADA`, `ANULADA`) y roles (`USER`, `ADMIN`) mediante enumeraciones.
-* **Suite de Tests Unitarios (88 tests):** Cobertura completa de logica de negocio sin depender de Spring context ni base de datos.
+* **Pagos con Stripe:** Integracion completa con Stripe Payments API: creacion de PaymentIntents, webhooks, pagos manuales (efectivo/transferencia) y reembolsos, con polling automatico desde el frontend mobile.
+* **Suite de Tests Unitarios (132 tests):** Cobertura completa de logica de negocio sin depender de Spring context ni base de datos.
 
 ## Estructura del Proyecto
 
@@ -87,17 +88,20 @@ com.segovia.peluqueria/
 
 ## Tests
 
-81 unit tests que cubren toda la logica de negocio, ejecutandose sin Spring context ni base de datos (~2 segundos):
+132 unit tests que cubren toda la logica de negocio, ejecutandose sin Spring context ni base de datos (~3 segundos):
 
 | Clase | Tests | Cobertura |
 |-------|-------|-----------|
 | UsuarioServiceTest | 24 | CRUD, email duplicado, encriptacion, soft delete, ownership, reactivar, paginacion, busqueda |
-| CitaServiceTest | 29 | Agendar, horarios, conflictos, CRUD, ownership, disponibilidad, paginacion |
+| CitaServiceTest | 30 | Agendar, horarios, conflictos, CRUD, ownership, disponibilidad, paginacion, auto-confirmacion al pagar |
 | ServicioServiceTest | 9 | CRUD, soft delete |
 | JwtServiceTest | 9 | Generar/extraer/validar tokens, firmas, tokenVersion |
-| AuthControllerTest | 5 | Login, registro, credenciales invalidas |
+| AuthControllerTest | 8 | Login, registro, refresh token, credenciales invalidas |
 | CustomUserDetailsServiceTest | 4 | Carga de usuario, roles, estado |
 | JwtAuthenticationFilterTest | 7 | Filtro con/sin token, token invalido/expirado, cuenta desactivada, tokenVersion |
+| PasswordResetServiceTest | 7 | Solicitud, restablecimiento, expiracion, anti-enumeracion |
+| PagoServiceTest | 23 | PaymentIntents, webhooks, pago manual, reembolso, polling, concurrencia |
+
 
 Para ejecutar los tests:
 ```bash
@@ -113,6 +117,8 @@ Para ejecutar los tests:
 | POST | `/api/auth/login` | Iniciar sesion (devuelve token JWT) |
 | POST | `/api/auth/recuperar` | Solicitar enlace de recuperacion de contrasena (responde 200 siempre, anti-enumeracion) |
 | POST | `/api/auth/reset` | Restablecer la contrasena con el token recibido por correo (un solo uso, caduca) |
+| POST | `/api/auth/refresh` | Rotar refresh token (devuelve nuevo access + refresh token) |
+| POST | `/api/auth/logout` | Revocar refresh token (inhabilitar sesion) |
 
 > Los endpoints de recuperacion estan limitados por IP (rate limiting con Bucket4j):
 > por defecto 5 peticiones cada 15 minutos. Al superarlo responden 429. Configurable con
@@ -149,6 +155,15 @@ Para ejecutar los tests:
 | PUT | `/api/citas/{id}` | Propio/ADMIN | Actualizar cita (solo dueno o ADMIN) |
 | DELETE | `/api/citas/{id}` | Propio/ADMIN | Eliminar cita (solo dueno o ADMIN) |
 
+### Pagos
+| Metodo | Endpoint | Acceso | Descripcion |
+|--------|----------|--------|-------------|
+| POST | `/api/pagos/crear-intent` | USER/ADMIN | Crear Stripe PaymentIntent para una cita |
+| POST | `/api/pagos/webhook` | Publico | Webhook de Stripe (eventos asincronos) |
+| POST | `/api/pagos/manual` | ADMIN | Registrar pago en efectivo o transferencia |
+| POST | `/api/pagos/{citaId}/reembolsar` | ADMIN | Reembolsar un pago (stripe o manual) |
+| GET | `/api/pagos/cita/{citaId}` | Propio/ADMIN | Consultar pago por ID de cita |
+
 ### Documentacion (publico)
 | Metodo | Endpoint | Descripcion |
 |--------|----------|-------------|
@@ -160,6 +175,9 @@ Para ejecutar los tests:
 * **`usuarios`**: Clientes y administradores. Almacena nombre, email (unico), telefono, contrasena (encriptada), rol y estado activo/inactivo.
 * **`servicios`**: Catalogo de la peluqueria (ej. cortes, tinturas, alisados). Almacena descripcion, duracion en minutos, precio y estado activo/inactivo.
 * **`citas`**: Entidad transaccional que vincula a un `usuario` con un `servicio` en una `fechaHora` especifica. Gestiona su estado mediante un `Enum` (`PENDIENTE`, `CONFIRMADA`, `ANULADA`).
+* **`pagos`**: Pagos vinculados 1:1 a una cita. Soporta tarjeta (Stripe), efectivo y transferencia. Estados: `PENDIENTE`, `PAGADO`, `REEMBOLSADO`, `CANCELADO`.
+* **`password_reset_token`**: Tokens de un solo uso para restablecimiento de contrasena, con expiracion configurable.
+* **`refresh_token`**: Tokens de refresco JWT persistentes para rotacion de sesion.
 
 ## Configuracion y Puesta en Marcha
 
@@ -187,11 +205,14 @@ Para ejecutar los tests:
     * `DB_USERNAME`: Tu usuario de PostgreSQL.
     * `DB_PASSWORD`: Tu contrasena de PostgreSQL.
     * `JWT_SECRET`: Clave secreta para firmar tokens JWT (minimo 32 caracteres).
+    * `STRIPE_SECRET_KEY`: Clave secreta de Stripe (modo test o production).
+    * `STRIPE_WEBHOOK_SECRET`: Clave del webhook de Stripe (para validar eventos).
+    * `MAIL_USERNAME` / `MAIL_PASSWORD`: Credenciales SMTP para correo (recuperacion de contrasena, notificaciones).
+    * `BUSINESS_EMAIL`: Correo del negocio para notificaciones.
+    * `FRONTEND_URL`: URL del frontend para enlaces en correos (default `http://localhost:4200`).
     * `CORS_ALLOWED_ORIGINS` *(solo perfil `prod`)*: Origen(es) permitidos para CORS, separados por coma (ej. `https://admin.tu-dominio.com`). En el perfil `dev` no hace falta: ya viene fijado a `http://localhost:4200`. Si no se define en `prod`, usa el fallback `https://admin.tu-dominio.com`.
 
-    *(Nota: El perfil `dev` usa `ddl-auto=update`, que crea y actualiza las tablas automaticamente al iniciar.)*
-
-    *(Despliegue a `prod`: el perfil usa `ddl-auto=validate` (no modifica el esquema). Como aun no hay migraciones (Flyway), al desplegar por primera vez hay que crear a mano la columna de revocacion de tokens: `ALTER TABLE usuarios ADD COLUMN token_version integer NOT NULL DEFAULT 1;`)*
+    *(El perfil `dev` usa `ddl-auto=validate` + Flyway para gestionar el esquema. Las migraciones estan en `src/main/resources/db/migration/`. Al iniciar, Flyway aplica automaticamente las migraciones pendientes.)*
 
     *(Opcional: el horario laboral se puede ajustar con `peluqueria.horario.apertura` y `peluqueria.horario.cierre` en `application.properties`. Por defecto 09:00-20:00.)*
 
@@ -226,7 +247,7 @@ Para ejecutar los tests:
 - [x] Autenticacion JWT y autorizacion por roles (USER/ADMIN).
 - [x] Constructor injection y eliminacion de `@Data` en entidades JPA.
 - [x] Reestructuracion de paquetes por dominio (usuario, cita, servicio, auth, security).
-- [x] Suite de 88 unit tests (services, security, controller).
+- [x] Suite de 132 unit tests (services, security, controller, pagos).
 - [x] Configuracion de CORS por perfil (origenes externalizados a `CORS_ALLOWED_ORIGINS` en prod).
 - [x] Endpoint para que un ADMIN cambie el rol de un usuario (con guard anti-lockout).
 - [x] Control de propiedad (ownership) en citas y usuarios; DTOs de respuesta para Cita/Servicio (no se exponen entidades).
@@ -238,7 +259,19 @@ Para ejecutar los tests:
 - [x] Busqueda de usuarios por nombre o email (`?search=`, server-side).
 - [x] Endurecimiento de sesion: expiracion 4h, validacion de cuenta activa por request y revocacion de tokens via `tokenVersion` (al cambiar password o rol).
 - [x] Frontend de administracion (Angular, repositorio aparte) consumiendo esta API.
-- [ ] Backlog (no priorizado): refresh tokens, migraciones con Flyway.
+- [x] Refresh tokens, Password Reset (con rate limiting y token de un solo uso).
+- [x] Pagos online con Stripe: PaymentIntents, webhooks, polling, reembolsos.
+- [x] Migraciones Flyway para gestion de esquema en produccion.
+- [x] App movil (Ionic 8 + Angular) para clientes, con pago integrado.
+
+## Frontend
+
+El proyecto incluye dos aplicaciones frontend en repositorio separado:
+
+* **Panel de administracion** ([Angular 21](https://angular.dev) + Tailwind v4): `http://localhost:4200`
+* **App movil para clientes** ([Ionic 8](https://ionicframework.com) + Angular zoneless): `http://localhost:8100`
+
+Ambos estan en el monorepo [peluqueria_citas_frontend](https://github.com/eduardoandr3s/peluqueria_citas_frontend) con npm workspaces, compartiendo tipos y servicios en `packages/core`.
 
 ---
 *Desarrollado por Eduardo Andres Segovia Roman.*
