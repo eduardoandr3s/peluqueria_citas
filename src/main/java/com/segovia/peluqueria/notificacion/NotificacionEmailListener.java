@@ -5,6 +5,7 @@ import com.segovia.peluqueria.notificacion.evento.CitaAnuladaEvent;
 import com.segovia.peluqueria.notificacion.evento.CitaModificadaEvent;
 import com.segovia.peluqueria.notificacion.evento.PagoConfirmadoEvent;
 import com.segovia.peluqueria.notificacion.evento.PasswordCambiadaEvent;
+import com.segovia.peluqueria.notificacion.evento.CitaRecordatorioEvent;
 import com.segovia.peluqueria.notificacion.evento.PasswordResetSolicitadoEvent;
 import com.segovia.peluqueria.notificacion.evento.UsuarioRegistradoEvent;
 import org.springframework.beans.factory.annotation.Value;
@@ -68,6 +69,13 @@ public class NotificacionEmailListener {
     public void onPasswordCambiada(PasswordCambiadaEvent e) {
         email.enviarHtml(e.email(), "Tu contrasena ha sido modificada", "password-cambiada",
                 Map.of("nombre", e.nombre()));
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onCitaRecordatorio(CitaRecordatorioEvent e) {
+        String fecha = FMT.format(e.fechaHora());
+        email.enviarHtml(e.clienteEmail(), "Recordatorio: tienes una cita manana", "recordatorio",
+                Map.of("nombre", e.clienteNombre(), "servicio", e.servicioNombre(), "fecha", fecha));
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)

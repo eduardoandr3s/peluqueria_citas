@@ -36,4 +36,7 @@ public class Cita {
     @Enumerated(EnumType.STRING)
     @Column(length = 50)
     private EstadoCita estado;
+
+    @Column(name = "recordatorio_enviado", nullable = false)
+    private Boolean recordatorioEnviado = false;
 }

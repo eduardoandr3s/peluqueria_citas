@@ -58,4 +58,7 @@ public interface CitaRepository extends JpaRepository<Cita, Integer> {
             """, nativeQuery = true)
     List<Object[]> topServicios(@Param("desde") LocalDateTime desde,
                                  @Param("hasta") LocalDateTime hasta);
+
+    List<Cita> findByEstadoAndRecordatorioEnviadoFalseAndFechaHoraBetween(
+            EstadoCita estado, LocalDateTime inicio, LocalDateTime fin);
 }
