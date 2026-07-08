@@ -1,5 +1,7 @@
 # Peluqueria "Lalo Segovia" - API REST
 
+[![CI](https://github.com/eduardoandr3s/peluqueria_citas/actions/workflows/ci.yml/badge.svg)](https://github.com/eduardoandr3s/peluqueria_citas/actions/workflows/ci.yml)
+
 Este repositorio contiene el backend de un sistema integral de gestion de citas y catalogo para una peluqueria. Desarrollado como una API REST robusta, este proyecto esta orientado a facilitar la reserva de servicios, gestion de horarios y administracion de clientes, separando la logica del lado del cliente y del administrador.
 
 ## Tecnologias Utilizadas
