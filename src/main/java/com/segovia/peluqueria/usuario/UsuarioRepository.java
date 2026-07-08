@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDate;
 import java.util.Optional;
 
 public interface UsuarioRepository extends JpaRepository<Usuario, Integer> {
@@ -19,6 +20,8 @@ public interface UsuarioRepository extends JpaRepository<Usuario, Integer> {
     Page<Usuario> findByActivoTrue(Pageable pageable);
 
     long countByRolAndActivoTrue(Rol rol);
+
+    long countByFechaRegistroBetween(LocalDate desde, LocalDate hasta);
 
     // Busqueda por nombre o email (contains, case-insensitive), combinable con incluirInactivos.
     // Si incluirInactivos es false solo devuelve usuarios activos. Filtra sobre toda la tabla, no solo la pagina.

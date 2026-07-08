@@ -74,6 +74,8 @@ public class SecurityConfig {
 
                         .requestMatchers("/api/citas/**").authenticated()
 
+                        .requestMatchers("/api/estadisticas/**").hasRole("ADMIN")
+
                         .requestMatchers("/api/pagos/webhook").permitAll()
                         .requestMatchers("/api/pagos/crear-intent").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/pagos/**").authenticated()
