@@ -1,5 +1,6 @@
 package com.segovia.peluqueria.cita;
 
+import com.segovia.peluqueria.peluquero.Peluquero;
 import com.segovia.peluqueria.servicio.Servicio;
 import com.segovia.peluqueria.usuario.Usuario;
 import jakarta.persistence.*;
@@ -29,6 +30,10 @@ public class Cita {
     @ManyToOne
     @JoinColumn(name = "servicio_id", nullable = false)
     private Servicio servicio;
+
+    @ManyToOne
+    @JoinColumn(name = "peluquero_id")
+    private Peluquero peluquero;
 
     @Column(name = "fecha_hora", nullable = false)
     private LocalDateTime fechaHora;

@@ -74,6 +74,11 @@ public class SecurityConfig {
 
                         .requestMatchers("/api/citas/**").authenticated()
 
+                        .requestMatchers(HttpMethod.GET, "/api/peluqueros", "/api/peluqueros/**").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/peluqueros").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/peluqueros/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/peluqueros/**").hasRole("ADMIN")
+
                         .requestMatchers("/api/estadisticas/**").hasRole("ADMIN")
 
                         .requestMatchers("/api/pagos/webhook").permitAll()

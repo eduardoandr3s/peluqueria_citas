@@ -8,6 +8,9 @@ import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.notificacion.evento.CitaAgendadaEvent;
 import com.segovia.peluqueria.notificacion.evento.CitaAnuladaEvent;
 import com.segovia.peluqueria.notificacion.evento.CitaModificadaEvent;
+import com.segovia.peluqueria.peluquero.Peluquero;
+import com.segovia.peluqueria.peluquero.PeluqueroRepository;
+import com.segovia.peluqueria.peluquero.dto.PeluqueroResponseDTO;
 import com.segovia.peluqueria.servicio.Servicio;
 import com.segovia.peluqueria.servicio.ServicioRepository;
 import com.segovia.peluqueria.servicio.dto.ServicioResponseDTO;
@@ -37,17 +40,20 @@ public class CitaService {
     private final CitaRepository citaRepository;
     private final UsuarioRepository usuarioRepository;
     private final ServicioRepository servicioRepository;
+    private final PeluqueroRepository peluqueroRepository;
     private final HorarioProperties horario;
     private final ApplicationEventPublisher eventPublisher;
 
     public CitaService(CitaRepository citaRepository,
                        UsuarioRepository usuarioRepository,
                        ServicioRepository servicioRepository,
+                       PeluqueroRepository peluqueroRepository,
                        HorarioProperties horario,
                        ApplicationEventPublisher eventPublisher) {
         this.citaRepository = citaRepository;
         this.usuarioRepository = usuarioRepository;
         this.servicioRepository = servicioRepository;
+        this.peluqueroRepository = peluqueroRepository;
         this.horario = horario;
         this.eventPublisher = eventPublisher;
     }
@@ -63,7 +69,7 @@ public class CitaService {
     }
 
     @Transactional(readOnly = true)
-    public List<String> obtenerDisponibilidad(LocalDate fecha, Integer idServicio) {
+    public List<String> obtenerDisponibilidad(LocalDate fecha, Integer idServicio, Integer peluqueroId) {
         if (fecha.isBefore(LocalDate.now())) {
             throw new IllegalArgumentException("No se puede consultar disponibilidad en una fecha pasada.");
         }
@@ -91,7 +97,7 @@ public class CitaService {
 
             // Para el día de hoy, descartar los slots cuya hora de inicio ya pasó.
             boolean yaPaso = inicioSlot.isBefore(ahora);
-            if (!yaPaso && citaRepository.contarConflictos(inicioSlot, finSlot) == 0) {
+            if (!yaPaso && !hayConflicto(inicioSlot, finSlot, null, peluqueroId)) {
                 slotsLibres.add(inicio.toString());
             }
 
@@ -99,6 +105,20 @@ public class CitaService {
         }
 
         return slotsLibres;
+    }
+
+    private boolean hayConflicto(LocalDateTime inicio, LocalDateTime fin, Integer idExcluir, Integer peluqueroId) {
+        int conflictos;
+        if (peluqueroId != null) {
+            conflictos = idExcluir != null
+                    ? citaRepository.contarConflictosExcluyendoConPeluquero(inicio, fin, idExcluir, peluqueroId)
+                    : citaRepository.contarConflictosConPeluquero(inicio, fin, peluqueroId);
+        } else {
+            conflictos = idExcluir != null
+                    ? citaRepository.contarConflictosExcluyendo(inicio, fin, idExcluir)
+                    : citaRepository.contarConflictos(inicio, fin);
+        }
+        return conflictos > 0;
     }
 
     @Transactional
@@ -119,14 +139,24 @@ public class CitaService {
             throw new IllegalArgumentException("No se puede agendar una cita con un servicio inactivo.");
         }
 
+        Peluquero peluquero = null;
+        if (request.getPeluqueroId() != null) {
+            peluquero = peluqueroRepository.findById(request.getPeluqueroId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Peluquero no encontrado con ID: " + request.getPeluqueroId()));
+            if (!peluquero.getActivo()) {
+                throw new IllegalArgumentException("No se puede agendar una cita con un peluquero inactivo.");
+            }
+        }
+
         validarFechaFutura(request.getFechaHora());
         validarHorarioLaboral(request.getFechaHora(), servicioCompleto.getDuracion());
 
-        validarConflictoHorario(request.getFechaHora(), servicioCompleto.getDuracion(), null);
+        validarConflictoHorario(request.getFechaHora(), servicioCompleto.getDuracion(), null, request.getPeluqueroId());
 
         Cita cita = new Cita();
         cita.setUsuario(usuarioCompleto);
         cita.setServicio(servicioCompleto);
+        cita.setPeluquero(peluquero);
         cita.setFechaHora(request.getFechaHora());
         cita.setEstado(EstadoCita.PENDIENTE);
 
@@ -172,10 +202,22 @@ public class CitaService {
             citaExistente.setServicio(servicioCompleto);
         }
 
-        if (request.getFechaHora() != null || request.getServicioId() != null) {
+        if (request.getPeluqueroId() != null) {
+            Peluquero peluquero = peluqueroRepository.findById(request.getPeluqueroId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Peluquero no encontrado con ID: " + request.getPeluqueroId()));
+            if (!peluquero.getActivo()) {
+                throw new IllegalArgumentException("No se puede asignar un peluquero inactivo.");
+            }
+            citaExistente.setPeluquero(peluquero);
+        }
+
+        Integer peluqueroIdParaConflicto = citaExistente.getPeluquero() != null
+                ? citaExistente.getPeluquero().getIdPeluquero() : null;
+
+        if (request.getFechaHora() != null || request.getServicioId() != null || request.getPeluqueroId() != null) {
             validarFechaFutura(citaExistente.getFechaHora());
             validarHorarioLaboral(citaExistente.getFechaHora(), citaExistente.getServicio().getDuracion());
-            validarConflictoHorario(citaExistente.getFechaHora(), citaExistente.getServicio().getDuracion(), id);
+            validarConflictoHorario(citaExistente.getFechaHora(), citaExistente.getServicio().getDuracion(), id, peluqueroIdParaConflicto);
         }
 
         boolean anulada = request.getEstado() == EstadoCita.ANULADA;
@@ -241,6 +283,7 @@ public class CitaService {
         dto.setEstado(cita.getEstado());
         dto.setUsuario(UsuarioResponseDTO.desde(cita.getUsuario()));
         dto.setServicio(ServicioResponseDTO.desde(cita.getServicio()));
+        dto.setPeluquero(PeluqueroResponseDTO.desde(cita.getPeluquero()));
         return dto;
     }
 
@@ -268,17 +311,8 @@ public class CitaService {
         }
     }
 
-    private void validarConflictoHorario(LocalDateTime inicio, Integer duracionMinutos, Integer idExcluir) {
-        LocalDateTime fin = inicio.plusMinutes(duracionMinutos);
-
-        int conflictos;
-        if (idExcluir != null) {
-            conflictos = citaRepository.contarConflictosExcluyendo(inicio, fin, idExcluir);
-        } else {
-            conflictos = citaRepository.contarConflictos(inicio, fin);
-        }
-
-        if (conflictos > 0) {
+    private void validarConflictoHorario(LocalDateTime inicio, Integer duracionMinutos, Integer idExcluir, Integer peluqueroId) {
+        if (hayConflicto(inicio, inicio.plusMinutes(duracionMinutos), idExcluir, peluqueroId)) {
             throw new ConflictoHorarioException("Ya existe una cita agendada en ese horario. Por favor elige otro horario.");
         }
     }

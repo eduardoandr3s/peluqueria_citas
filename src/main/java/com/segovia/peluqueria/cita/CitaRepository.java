@@ -36,6 +36,32 @@ public interface CitaRepository extends JpaRepository<Cita, Integer> {
                                    @Param("idExcluir") Integer idExcluir);
 
     @Query(value = """
+            SELECT COUNT(*) FROM citas c
+            JOIN servicios s ON c.servicio_id = s.id_servicio
+            WHERE c.estado <> 'ANULADA'
+            AND c.fecha_hora < CAST(:nuevoFin AS TIMESTAMP)
+            AND (c.fecha_hora + (s.duracion * interval '1 minute')) > CAST(:nuevoInicio AS TIMESTAMP)
+            AND (c.peluquero_id IS NULL OR c.peluquero_id = :peluqueroId)
+            """, nativeQuery = true)
+    int contarConflictosConPeluquero(@Param("nuevoInicio") LocalDateTime nuevoInicio,
+                                     @Param("nuevoFin") LocalDateTime nuevoFin,
+                                     @Param("peluqueroId") Integer peluqueroId);
+
+    @Query(value = """
+            SELECT COUNT(*) FROM citas c
+            JOIN servicios s ON c.servicio_id = s.id_servicio
+            WHERE c.estado <> 'ANULADA'
+            AND c.id_cita <> :idExcluir
+            AND c.fecha_hora < CAST(:nuevoFin AS TIMESTAMP)
+            AND (c.fecha_hora + (s.duracion * interval '1 minute')) > CAST(:nuevoInicio AS TIMESTAMP)
+            AND (c.peluquero_id IS NULL OR c.peluquero_id = :peluqueroId)
+            """, nativeQuery = true)
+    int contarConflictosExcluyendoConPeluquero(@Param("nuevoInicio") LocalDateTime nuevoInicio,
+                                               @Param("nuevoFin") LocalDateTime nuevoFin,
+                                               @Param("idExcluir") Integer idExcluir,
+                                               @Param("peluqueroId") Integer peluqueroId);
+
+    @Query(value = """
             SELECT c.estado, COUNT(*) AS total
             FROM citas c
             WHERE c.fecha_hora >= CAST(:desde AS TIMESTAMP)
