@@ -12,6 +12,8 @@ public class CitaUpdateDTO {
 
     private Integer servicioId;
 
+    private Integer peluqueroId;
+
     private LocalDateTime fechaHora;
 
     private EstadoCita estado;

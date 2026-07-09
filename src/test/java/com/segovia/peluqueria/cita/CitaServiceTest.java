@@ -8,6 +8,8 @@ import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.notificacion.evento.CitaAgendadaEvent;
 import com.segovia.peluqueria.notificacion.evento.CitaAnuladaEvent;
 import com.segovia.peluqueria.notificacion.evento.CitaModificadaEvent;
+import com.segovia.peluqueria.peluquero.Peluquero;
+import com.segovia.peluqueria.peluquero.PeluqueroRepository;
 import com.segovia.peluqueria.servicio.Servicio;
 import com.segovia.peluqueria.servicio.ServicioRepository;
 import com.segovia.peluqueria.usuario.Rol;
@@ -41,6 +43,7 @@ class CitaServiceTest {
     private CitaRepository citaRepository;
     private UsuarioRepository usuarioRepository;
     private ServicioRepository servicioRepository;
+    private PeluqueroRepository peluqueroRepository;
     private ApplicationEventPublisher eventPublisher;
     private CitaService citaService;
 
@@ -51,9 +54,10 @@ class CitaServiceTest {
         citaRepository = mock(CitaRepository.class);
         usuarioRepository = mock(UsuarioRepository.class);
         servicioRepository = mock(ServicioRepository.class);
+        peluqueroRepository = mock(PeluqueroRepository.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
         // HorarioProperties con sus valores por defecto: 09:00 - 20:00.
-        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository, new HorarioProperties(), eventPublisher);
+        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository, peluqueroRepository, new HorarioProperties(), eventPublisher);
 
         // Por defecto, el usuario autenticado es un ADMIN (acceso total).
         Usuario admin = new Usuario();
@@ -375,7 +379,7 @@ class CitaServiceTest {
         when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
         when(citaRepository.contarConflictos(any(), any())).thenReturn(0);
 
-        List<String> slots = citaService.obtenerDisponibilidad(fecha, 1);
+        List<String> slots = citaService.obtenerDisponibilidad(fecha, 1, null);
 
         // 09:00 .. 19:30 en pasos de 30 min con servicio de 30 min => 22 slots.
         assertEquals(22, slots.size());
@@ -393,7 +397,7 @@ class CitaServiceTest {
         when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
         when(citaRepository.contarConflictos(any(), any())).thenReturn(0);
 
-        List<String> slots = citaService.obtenerDisponibilidad(fecha, 1);
+        List<String> slots = citaService.obtenerDisponibilidad(fecha, 1, null);
 
         // Ultimo inicio valido para 90 min: 18:30 (termina 20:00).
         assertEquals("18:30", slots.get(slots.size() - 1));
@@ -413,7 +417,7 @@ class CitaServiceTest {
             return (inicio.getHour() == 10 && inicio.getMinute() == 0) ? 1 : 0;
         });
 
-        List<String> slots = citaService.obtenerDisponibilidad(fecha, 1);
+        List<String> slots = citaService.obtenerDisponibilidad(fecha, 1, null);
 
         assertTrue(slots.contains("09:30"));
         assertFalse(slots.contains("10:00"));
@@ -427,7 +431,7 @@ class CitaServiceTest {
 
         when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
 
-        List<String> slots = citaService.obtenerDisponibilidad(domingo, 1);
+        List<String> slots = citaService.obtenerDisponibilidad(domingo, 1, null);
 
         assertTrue(slots.isEmpty());
     }
@@ -437,7 +441,7 @@ class CitaServiceTest {
         LocalDate ayer = LocalDate.now().minusDays(1);
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> citaService.obtenerDisponibilidad(ayer, 1));
+                () -> citaService.obtenerDisponibilidad(ayer, 1, null));
         assertTrue(ex.getMessage().contains("pasada"));
     }
 
@@ -450,7 +454,7 @@ class CitaServiceTest {
         when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
 
         assertThrows(IllegalArgumentException.class,
-                () -> citaService.obtenerDisponibilidad(fecha, 1));
+                () -> citaService.obtenerDisponibilidad(fecha, 1, null));
     }
 
     @Test
@@ -565,5 +569,123 @@ class CitaServiceTest {
         assertThrows(AccessDeniedException.class,
                 () -> citaService.eliminarCita(1, "carlos@test.com"));
         verify(citaRepository, never()).delete(any());
+    }
+
+    // --- Tests con peluquero ---
+
+    private Peluquero crearPeluqueroActivo() {
+        Peluquero p = new Peluquero();
+        p.setIdPeluquero(1);
+        p.setNombre("Lalo");
+        p.setActivo(true);
+        return p;
+    }
+
+    @Test
+    void agendarCita_conPeluquero_exitoso() {
+        CitaRequestDTO request = crearRequestValido();
+        request.setPeluqueroId(1);
+        Usuario usuario = crearUsuarioActivo();
+        Servicio servicio = crearServicioActivo();
+        Peluquero peluquero = crearPeluqueroActivo();
+
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(usuario));
+        when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
+        when(peluqueroRepository.findById(1)).thenReturn(Optional.of(peluquero));
+        when(citaRepository.contarConflictosConPeluquero(any(), any(), eq(1))).thenReturn(0);
+        when(citaRepository.save(any(Cita.class))).thenAnswer(invocation -> {
+            Cita c = invocation.getArgument(0);
+            c.setIdCita(1);
+            return c;
+        });
+
+        CitaResponseDTO resultado = citaService.agendarCita(request, EMAIL_ADMIN);
+
+        assertNotNull(resultado.getPeluquero());
+        assertEquals(1, resultado.getPeluquero().getIdPeluquero());
+        assertEquals("Lalo", resultado.getPeluquero().getNombre());
+        verify(peluqueroRepository).findById(1);
+    }
+
+    @Test
+    void agendarCita_peluqueroNoExiste_lanzaExcepcion() {
+        CitaRequestDTO request = crearRequestValido();
+        request.setPeluqueroId(99);
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(crearUsuarioActivo()));
+        when(servicioRepository.findById(1)).thenReturn(Optional.of(crearServicioActivo()));
+        when(peluqueroRepository.findById(99)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> citaService.agendarCita(request, EMAIL_ADMIN));
+    }
+
+    @Test
+    void agendarCita_peluqueroInactivo_lanzaExcepcion() {
+        CitaRequestDTO request = crearRequestValido();
+        request.setPeluqueroId(1);
+        Peluquero peluquero = crearPeluqueroActivo();
+        peluquero.setActivo(false);
+
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(crearUsuarioActivo()));
+        when(servicioRepository.findById(1)).thenReturn(Optional.of(crearServicioActivo()));
+        when(peluqueroRepository.findById(1)).thenReturn(Optional.of(peluquero));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> citaService.agendarCita(request, EMAIL_ADMIN));
+        assertTrue(ex.getMessage().contains("peluquero inactivo"));
+    }
+
+    @Test
+    void disponibilidad_conPeluquero_consultaFiltrada() {
+        Servicio servicio = crearServicioActivo();
+        LocalDate fecha = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+
+        when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
+        when(citaRepository.contarConflictosConPeluquero(any(), any(), eq(1))).thenReturn(0);
+
+        List<String> slots = citaService.obtenerDisponibilidad(fecha, 1, 1);
+
+        assertEquals(22, slots.size());
+        verify(citaRepository, never()).contarConflictos(any(), any());
+        verify(citaRepository, atLeastOnce()).contarConflictosConPeluquero(any(), any(), eq(1));
+    }
+
+    @Test
+    void disponibilidad_sinPeluquero_usaQueryGlobal() {
+        Servicio servicio = crearServicioActivo();
+        LocalDate fecha = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+
+        when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
+        when(citaRepository.contarConflictos(any(), any())).thenReturn(0);
+
+        List<String> slots = citaService.obtenerDisponibilidad(fecha, 1, null);
+
+        assertEquals(22, slots.size());
+        verify(citaRepository, atLeastOnce()).contarConflictos(any(), any());
+        verify(citaRepository, never()).contarConflictosConPeluquero(any(), any(), any());
+    }
+
+    @Test
+    void actualizarCita_asignarPeluquero() {
+        Cita citaExistente = new Cita();
+        citaExistente.setIdCita(1);
+        citaExistente.setEstado(EstadoCita.PENDIENTE);
+        citaExistente.setFechaHora(proximoLunesALas(10, 0));
+        citaExistente.setServicio(crearServicioActivo());
+        citaExistente.setUsuario(crearUsuarioActivo());
+
+        Peluquero peluquero = crearPeluqueroActivo();
+
+        when(citaRepository.findById(1)).thenReturn(Optional.of(citaExistente));
+        when(peluqueroRepository.findById(1)).thenReturn(Optional.of(peluquero));
+        when(citaRepository.save(any(Cita.class))).thenAnswer(i -> i.getArgument(0));
+
+        CitaUpdateDTO request = new CitaUpdateDTO();
+        request.setPeluqueroId(1);
+
+        CitaResponseDTO resultado = citaService.actualizarCita(1, request, EMAIL_ADMIN);
+
+        assertNotNull(resultado.getPeluquero());
+        assertEquals(1, resultado.getPeluquero().getIdPeluquero());
     }
 }

@@ -36,8 +36,9 @@ public class CitaController {
     @GetMapping("/disponibilidad")
     public List<String> disponibilidad(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fecha,
-            @RequestParam Integer idServicio) {
-        return citaService.obtenerDisponibilidad(fecha, idServicio);
+            @RequestParam Integer idServicio,
+            @RequestParam(required = false) Integer peluqueroId) {
+        return citaService.obtenerDisponibilidad(fecha, idServicio, peluqueroId);
     }
 
     @PostMapping

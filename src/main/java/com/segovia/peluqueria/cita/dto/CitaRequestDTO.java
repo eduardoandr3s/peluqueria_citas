@@ -16,6 +16,8 @@ public class CitaRequestDTO {
     @NotNull(message = "El ID del servicio es obligatorio")
     private Integer servicioId;
 
+    private Integer peluqueroId;
+
     @NotNull(message = "La fecha y hora de la cita es obligatoria")
     private LocalDateTime fechaHora;
 }
