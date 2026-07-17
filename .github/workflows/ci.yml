@@ -24,4 +24,4 @@ jobs:
         run: chmod +x mvnw
 
       - name: Run tests
-        run: ./mvnw -B test -Dapi.version=1.45
+        run: ./mvnw -B test

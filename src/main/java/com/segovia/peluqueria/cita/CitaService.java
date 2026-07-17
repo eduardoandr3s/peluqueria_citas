@@ -80,6 +80,9 @@ public class CitaService {
             throw new IllegalArgumentException("El servicio no esta disponible.");
         }
 
+        // Si se filtra por peluquero, debe existir y estar activo.
+        validarPeluqueroActivo(peluqueroId);
+
         // Domingo cerrado: no hay slots.
         if (fecha.getDayOfWeek() == DayOfWeek.SUNDAY) {
             return List.of();
@@ -105,6 +108,22 @@ public class CitaService {
         }
 
         return slotsLibres;
+    }
+
+    /**
+     * Valida que el peluquero indicado exista y esté activo. Devuelve la entidad,
+     * o {@code null} si no se especifica peluquero (cita sin asignar).
+     */
+    private Peluquero validarPeluqueroActivo(Integer peluqueroId) {
+        if (peluqueroId == null) {
+            return null;
+        }
+        Peluquero peluquero = peluqueroRepository.findById(peluqueroId)
+                .orElseThrow(() -> new ResourceNotFoundException("Peluquero no encontrado con ID: " + peluqueroId));
+        if (!peluquero.getActivo()) {
+            throw new IllegalArgumentException("No se puede usar un peluquero inactivo.");
+        }
+        return peluquero;
     }
 
     private boolean hayConflicto(LocalDateTime inicio, LocalDateTime fin, Integer idExcluir, Integer peluqueroId) {
@@ -139,14 +158,7 @@ public class CitaService {
             throw new IllegalArgumentException("No se puede agendar una cita con un servicio inactivo.");
         }
 
-        Peluquero peluquero = null;
-        if (request.getPeluqueroId() != null) {
-            peluquero = peluqueroRepository.findById(request.getPeluqueroId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Peluquero no encontrado con ID: " + request.getPeluqueroId()));
-            if (!peluquero.getActivo()) {
-                throw new IllegalArgumentException("No se puede agendar una cita con un peluquero inactivo.");
-            }
-        }
+        Peluquero peluquero = validarPeluqueroActivo(request.getPeluqueroId());
 
         validarFechaFutura(request.getFechaHora());
         validarHorarioLaboral(request.getFechaHora(), servicioCompleto.getDuracion());
@@ -203,12 +215,7 @@ public class CitaService {
         }
 
         if (request.getPeluqueroId() != null) {
-            Peluquero peluquero = peluqueroRepository.findById(request.getPeluqueroId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Peluquero no encontrado con ID: " + request.getPeluqueroId()));
-            if (!peluquero.getActivo()) {
-                throw new IllegalArgumentException("No se puede asignar un peluquero inactivo.");
-            }
-            citaExistente.setPeluquero(peluquero);
+            citaExistente.setPeluquero(validarPeluqueroActivo(request.getPeluqueroId()));
         }
 
         Integer peluqueroIdParaConflicto = citaExistente.getPeluquero() != null

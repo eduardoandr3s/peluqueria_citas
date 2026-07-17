@@ -23,12 +23,15 @@ public class EstadisticasController {
 
     @GetMapping
     public ResponseEntity<?> obtenerEstadisticas(
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta) {
-        if (desde.isAfter(hasta)) {
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta) {
+        // Por defecto, los últimos 30 días si no se especifica el rango.
+        LocalDate hastaEfectiva = hasta != null ? hasta : LocalDate.now();
+        LocalDate desdeEfectiva = desde != null ? desde : hastaEfectiva.minusDays(30);
+        if (desdeEfectiva.isAfter(hastaEfectiva)) {
             return ResponseEntity.badRequest().body(Map.of("error", "La fecha 'desde' debe ser anterior o igual a 'hasta'"));
         }
-        EstadisticasResponseDTO stats = estadisticasService.obtenerEstadisticas(desde, hasta);
+        EstadisticasResponseDTO stats = estadisticasService.obtenerEstadisticas(desdeEfectiva, hastaEfectiva);
         return ResponseEntity.ok(stats);
     }
 }

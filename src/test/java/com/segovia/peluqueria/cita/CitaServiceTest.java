@@ -641,6 +641,7 @@ class CitaServiceTest {
         LocalDate fecha = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
 
         when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
+        when(peluqueroRepository.findById(1)).thenReturn(Optional.of(crearPeluqueroActivo()));
         when(citaRepository.contarConflictosConPeluquero(any(), any(), eq(1))).thenReturn(0);
 
         List<String> slots = citaService.obtenerDisponibilidad(fecha, 1, 1);
@@ -648,6 +649,73 @@ class CitaServiceTest {
         assertEquals(22, slots.size());
         verify(citaRepository, never()).contarConflictos(any(), any());
         verify(citaRepository, atLeastOnce()).contarConflictosConPeluquero(any(), any(), eq(1));
+    }
+
+    @Test
+    void disponibilidad_peluqueroNoExiste_lanzaExcepcion() {
+        Servicio servicio = crearServicioActivo();
+        LocalDate fecha = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+
+        when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
+        when(peluqueroRepository.findById(99)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> citaService.obtenerDisponibilidad(fecha, 1, 99));
+        verify(citaRepository, never()).contarConflictosConPeluquero(any(), any(), any());
+    }
+
+    @Test
+    void disponibilidad_peluqueroInactivo_lanzaExcepcion() {
+        Servicio servicio = crearServicioActivo();
+        LocalDate fecha = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+        Peluquero inactivo = crearPeluqueroActivo();
+        inactivo.setActivo(false);
+
+        when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
+        when(peluqueroRepository.findById(1)).thenReturn(Optional.of(inactivo));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> citaService.obtenerDisponibilidad(fecha, 1, 1));
+        assertTrue(ex.getMessage().contains("peluquero inactivo"));
+    }
+
+    @Test
+    void agendarCita_conPeluquero_conflicto_lanzaExcepcion() {
+        CitaRequestDTO request = crearRequestValido();
+        request.setPeluqueroId(1);
+
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(crearUsuarioActivo()));
+        when(servicioRepository.findById(1)).thenReturn(Optional.of(crearServicioActivo()));
+        when(peluqueroRepository.findById(1)).thenReturn(Optional.of(crearPeluqueroActivo()));
+        // El peluquero ya tiene una cita en ese horario → conflicto solo para ese peluquero.
+        when(citaRepository.contarConflictosConPeluquero(any(), any(), eq(1))).thenReturn(1);
+
+        assertThrows(ConflictoHorarioException.class,
+                () -> citaService.agendarCita(request, EMAIL_ADMIN));
+        verify(citaRepository, never()).contarConflictos(any(), any());
+    }
+
+    @Test
+    void actualizarCita_peluqueroInactivo_lanzaExcepcion() {
+        Cita citaExistente = new Cita();
+        citaExistente.setIdCita(1);
+        citaExistente.setEstado(EstadoCita.PENDIENTE);
+        citaExistente.setFechaHora(proximoLunesALas(10, 0));
+        citaExistente.setServicio(crearServicioActivo());
+        citaExistente.setUsuario(crearUsuarioActivo());
+
+        Peluquero inactivo = crearPeluqueroActivo();
+        inactivo.setActivo(false);
+
+        when(citaRepository.findById(1)).thenReturn(Optional.of(citaExistente));
+        when(peluqueroRepository.findById(1)).thenReturn(Optional.of(inactivo));
+
+        CitaUpdateDTO request = new CitaUpdateDTO();
+        request.setPeluqueroId(1);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> citaService.actualizarCita(1, request, EMAIL_ADMIN));
+        assertTrue(ex.getMessage().contains("peluquero inactivo"));
     }
 
     @Test

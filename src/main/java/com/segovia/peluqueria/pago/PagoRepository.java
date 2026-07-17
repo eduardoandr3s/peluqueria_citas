@@ -16,8 +16,8 @@ public interface PagoRepository extends JpaRepository<Pago, Integer> {
     @Query(value = """
             SELECT COALESCE(SUM(monto), 0) FROM pagos
             WHERE estado_pago = 'PAGADO'
-            AND fecha_creacion >= CAST(:desde AS TIMESTAMP)
-            AND fecha_creacion < CAST(:hasta AS TIMESTAMP)
+            AND fecha_pago >= CAST(:desde AS TIMESTAMP)
+            AND fecha_pago < CAST(:hasta AS TIMESTAMP)
             """, nativeQuery = true)
     BigDecimal sumIngresos(@Param("desde") LocalDateTime desde,
                            @Param("hasta") LocalDateTime hasta);
@@ -26,8 +26,8 @@ public interface PagoRepository extends JpaRepository<Pago, Integer> {
             SELECT metodo_pago, COALESCE(SUM(monto), 0) AS total
             FROM pagos
             WHERE estado_pago = 'PAGADO'
-            AND fecha_creacion >= CAST(:desde AS TIMESTAMP)
-            AND fecha_creacion < CAST(:hasta AS TIMESTAMP)
+            AND fecha_pago >= CAST(:desde AS TIMESTAMP)
+            AND fecha_pago < CAST(:hasta AS TIMESTAMP)
             GROUP BY metodo_pago
             """, nativeQuery = true)
     List<Object[]> ingresosPorMetodoPago(@Param("desde") LocalDateTime desde,
