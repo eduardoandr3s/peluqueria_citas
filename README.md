@@ -1,279 +1,268 @@
-# Peluqueria "Lalo Segovia" - API REST
+# "Lalo Segovia" Hair Salon — Booking REST API
 
 [![CI](https://github.com/eduardoandr3s/peluqueria_citas/actions/workflows/ci.yml/badge.svg)](https://github.com/eduardoandr3s/peluqueria_citas/actions/workflows/ci.yml)
 
-Este repositorio contiene el backend de un sistema integral de gestion de citas y catalogo para una peluqueria. Desarrollado como una API REST robusta, este proyecto esta orientado a facilitar la reserva de servicios, gestion de horarios y administracion de clientes, separando la logica del lado del cliente y del administrador.
+🇬🇧 English | [🇪🇸 Español](README.es.md)
 
-## Tecnologias Utilizadas
+Backend for a complete appointment booking and management system for a hair salon. It is a REST API that handles service bookings, schedules, online payments and customer management, with separate flows for customers and administrators.
+
+## Live Demo
+
+| App | URL |
+|-----|-----|
+| Admin panel | https://peluqueria-citas-prod.web.app |
+| Customer app (web build) | https://peluqueria-citas-app.web.app |
+| API + Swagger UI | https://peluqueria-citas-zbxb.onrender.com/swagger-ui.html |
+
+> The API runs on Render's free tier and **sleeps after 15 minutes of inactivity**: the first request may take ~30-60 seconds. Stripe runs in **test mode** — use card `4242 4242 4242 4242` with any future date and CVC.
+
+## Tech Stack
 
 * **Java 21 (Temurin LTS)**
-* **Spring Boot 4.0.3** (Framework principal)
-* **PostgreSQL** (Base de datos relacional)
-* **Spring Data JPA / Hibernate** (ORM para el mapeo de la base de datos)
-* **Spring Security + JWT** (Autenticacion stateless con tokens y autorizacion por roles)
-* **BCrypt** (Encriptacion unidireccional de contrasenas)
-* **Spring Boot Validation** (Validacion estricta de datos de entrada)
-* **Maven** (Gestor de dependencias y construccion)
-* **Lombok** (Reduccion de codigo boilerplate)
-* **JUnit 5 + Mockito** (Testing unitario)
+* **Spring Boot 4.0.3** (main framework)
+* **PostgreSQL** (relational database)
+* **Flyway** (database migrations, V1-V7)
+* **Spring Data JPA / Hibernate** (ORM)
+* **Spring Security + JWT** (stateless authentication and role-based authorization)
+* **BCrypt** (one-way password hashing)
+* **Stripe API** (online payments: PaymentIntents, webhooks, refunds)
+* **Spring Mail** (transactional emails and appointment reminders)
+* **Bucket4j** (rate limiting)
+* **springdoc-openapi** (Swagger UI documentation)
+* **Maven** · **Lombok** · **Docker Compose** (local dev environment)
+* **JUnit 5 + Mockito** (unit tests) · **Testcontainers** (integration tests against a real PostgreSQL)
+* **GitHub Actions** (CI: full test suite on every push and pull request)
 
-## Caracteristicas Implementadas
+## Features
 
-* **Arquitectura por Dominio:** Organizacion del codigo por modulo de negocio (`usuario/`, `cita/`, `servicio/`, `auth/`, `security/`), donde cada modulo agrupa su modelo, controller, service, repository y DTOs.
-* **Constructor Injection:** Inyeccion de dependencias via constructor con campos `final` (sin `@Autowired`), siguiendo las mejores practicas de Spring para inmutabilidad y testabilidad.
-* **Autenticacion JWT con Roles:** Sistema de login/registro con tokens JWT (expiracion 4h). Dos roles: `USER` (clientes) y `ADMIN` (administrador). Cada endpoint esta protegido segun el rol requerido. En cada request se valida ademas que la cuenta siga activa y que el `tokenVersion` del token coincida con el de la BD: cambiar la contrasena o el rol **revoca** los tokens emitidos antes (el rol y el estado activo se leen siempre de la BD, no del token).
-* **Patron DTO (Data Transfer Object):** Implementado en todas las entidades (Usuario, Servicio, Cita) con DTOs separados para creacion y actualizacion parcial. Garantiza que informacion sensible no se exponga en las respuestas.
-* **Validacion de Conflictos de Horarios:** El sistema impide agendar citas que se solapen con otras ya existentes, calculando el rango de tiempo segun la duracion del servicio.
-* **Validacion de Horario Laboral:** Las citas solo se pueden agendar de Lunes a Sabado entre 9:00 y 20:00, y no se permiten citas en el pasado. El horario es **configurable** via properties (`peluqueria.horario.apertura` / `peluqueria.horario.cierre`).
-* **Control de Propiedad (Ownership):** Un `USER` solo puede ver, modificar o eliminar sus propias citas y sus propios datos; un `ADMIN` puede acceder a los de cualquiera. Los accesos no autorizados devuelven `403 Forbidden`.
-* **Paginacion y Ordenacion:** Los listados de citas (`/api/citas`) y usuarios (`/api/usuarios`) estan paginados (`page`, `size`, `sort`), devolviendo un objeto `Page` de Spring Data.
-* **Consulta de Disponibilidad:** Endpoint `/api/citas/disponibilidad` que calcula los huecos libres (slots de 30 min) para un servicio en una fecha, descontando citas existentes y respetando el horario laboral.
-* **Soft Delete + Reactivacion:** Los usuarios y servicios no se eliminan fisicamente, se marcan como inactivos. Los usuarios desactivados pueden listarse (`?incluirInactivos=true`) y reactivarse (`PATCH /api/usuarios/{id}/activar`).
-* **Busqueda de Usuarios:** `GET /api/usuarios?search=` filtra por nombre o email (contains, case-insensitive) sobre toda la tabla en BD, combinable con `incluirInactivos` y la paginacion.
-* **Validacion de Unicidad de Email:** Se verifica tanto al crear como al actualizar que no exista otro usuario con el mismo email.
-* **Manejo Global de Excepciones:** `@RestControllerAdvice` con handlers especificos para validacion (400), recurso no encontrado (404), acceso denegado (403), conflictos (409) y un handler generico (500) que no expone informacion interna. Incluye logging (SLF4J).
-* **Documentacion OpenAPI / Swagger UI:** Generada automaticamente con springdoc-openapi. Disponible en `/swagger-ui.html` y `/v3/api-docs`.
-* **Perfiles de Configuracion:** Separacion entre entorno de desarrollo (`dev`) y produccion (`prod`) con configuraciones especificas para cada uno.
-* **Tipado Estricto con Enums:** Estado de citas (`PENDIENTE`, `CONFIRMADA`, `ANULADA`) y roles (`USER`, `ADMIN`) mediante enumeraciones.
-* **Pagos con Stripe:** Integracion completa con Stripe Payments API: creacion de PaymentIntents, webhooks, pagos manuales (efectivo/transferencia) y reembolsos, con polling automatico desde el frontend mobile.
-* **Suite de Tests Unitarios (132 tests):** Cobertura completa de logica de negocio sin depender de Spring context ni base de datos.
+* **Domain-based architecture:** code is organized by business module (`usuario/`, `cita/`, `servicio/`, `pago/`, `peluquero/`, `estadistica/`, `notificacion/`, `auth/`, `security/`). Each module contains its entity, controller, service, repository and DTOs.
+* **Constructor injection:** dependencies are injected through constructors with `final` fields (no `@Autowired`), following Spring best practices for immutability and testability.
+* **JWT authentication with roles:** login/registration with JWT access tokens (30 min) plus **rotating refresh tokens** (30 days). Two roles: `USER` (customers) and `ADMIN`. On every request the API also checks that the account is still active and that the token's `tokenVersion` matches the database: changing the password or the role **revokes** previously issued tokens (role and active status are always read from the database, never from the token).
+* **Password reset:** one-time tokens sent by email, with expiration and **per-IP rate limiting** (Bucket4j). The endpoint always returns 200 to prevent user enumeration.
+* **Online payments with Stripe:** PaymentIntent creation, **signed webhooks** (signature verified with the official SDK), idempotent event processing, manual payments (cash/transfer) and refunds. A successful payment auto-confirms the appointment.
+* **Multi-barber support:** barber CRUD and an **optional barber** per appointment. Schedule conflicts are checked per barber ("unassigned" blocks the whole slot), and availability can be queried for a specific barber.
+* **Availability endpoint:** `/api/citas/disponibilidad` computes free 30-minute slots for a service on a date — optionally for a specific barber — taking existing appointments and business hours into account.
+* **Schedule conflict validation:** overlapping appointments are rejected, using the service duration to compute each time range.
+* **Business-hours validation:** appointments can only be booked Monday to Saturday, 9:00-20:00, never in the past. Hours are **configurable** via properties (`peluqueria.horario.apertura` / `peluqueria.horario.cierre`).
+* **Business statistics:** `GET /api/estadisticas` (ADMIN only) returns appointments by status, revenue broken down by payment method (refunds excluded, computed by payment date), top services and new customers. Defaults to the **last 30 days** when no date range is given.
+* **Email notifications:** event-driven emails (registration, booking, modification, cancellation, payment confirmation, password changes) decoupled from business logic via Spring application events (`@TransactionalEventListener(AFTER_COMMIT)`), plus a **24-hour appointment reminder** sent by a scheduler (runs every 15 minutes, injectable `Clock` for testability, `recordatorio_enviado` flag guarantees a single send).
+* **Ownership control:** a `USER` can only see, modify or delete their own appointments and data; an `ADMIN` can access everything. Unauthorized access returns `403 Forbidden`.
+* **DTO pattern:** every entity has separate DTOs for creation, partial update and response. Sensitive data is never exposed.
+* **Pagination and sorting:** appointment and user listings are paginated (`page`, `size`, `sort`) and return a Spring Data `Page`.
+* **Soft delete + reactivation:** users, services and barbers are never physically deleted, only deactivated. Deactivated users can be listed (`?incluirInactivos=true`) and reactivated (`PATCH /api/usuarios/{id}/activar`).
+* **User search:** `GET /api/usuarios?search=` filters by name or email (contains, case-insensitive) in the database, combinable with `incluirInactivos` and pagination.
+* **Global exception handling:** `@RestControllerAdvice` with specific handlers for validation (400), not found (404), access denied (403), conflicts (409) and a generic handler (500) that never leaks internal details. Includes SLF4J logging.
+* **OpenAPI / Swagger UI documentation:** auto-generated with springdoc-openapi, available at `/swagger-ui.html` and `/v3/api-docs`.
+* **Configuration profiles:** separate `dev` and `prod` environments. Schema is managed with **Flyway migrations** (`src/main/resources/db/migration/`).
+* **Test suite (167 tests):** 157 unit tests covering the business logic without Spring context or database, plus 10 integration tests with **Testcontainers** (real PostgreSQL in Docker) covering authentication, ownership rules, statistics and the full Stripe webhook flow with real signature verification.
 
-## Estructura del Proyecto
+## Project Structure
 
 ```
 com.segovia.peluqueria/
-├── usuario/                  # Modulo de usuarios
-│   ├── Usuario.java          # Entidad JPA
-│   ├── Rol.java              # Enum (USER, ADMIN)
-│   ├── UsuarioController.java
-│   ├── UsuarioService.java
-│   ├── UsuarioRepository.java
-│   └── dto/
-│       ├── UsuarioRequestDTO.java
-│       ├── UsuarioUpdateDTO.java
-│       └── UsuarioResponseDTO.java
-├── cita/                     # Modulo de citas
-│   ├── Cita.java
-│   ├── EstadoCita.java       # Enum (PENDIENTE, CONFIRMADA, ANULADA)
-│   ├── HorarioProperties.java # Horario laboral configurable
-│   ├── CitaController.java
-│   ├── CitaService.java
-│   ├── CitaRepository.java
-│   └── dto/
-│       ├── CitaRequestDTO.java
-│       ├── CitaUpdateDTO.java
-│       └── CitaResponseDTO.java
-├── servicio/                 # Modulo de servicios
-│   ├── Servicio.java
-│   ├── ServicioController.java
-│   ├── ServicioService.java
-│   ├── ServicioRepository.java
-│   └── dto/
-│       ├── ServicioRequestDTO.java
-│       ├── ServicioUpdateDTO.java
-│       └── ServicioResponseDTO.java
-├── auth/                     # Modulo de autenticacion
-│   ├── AuthController.java
-│   └── dto/
-│       ├── AuthResponseDTO.java
-│       └── LoginRequestDTO.java
-├── security/                 # Configuracion de seguridad
-│   ├── SecurityConfig.java
-│   ├── JwtService.java
-│   ├── JwtAuthenticationFilter.java
-│   └── CustomUserDetailsService.java
-└── exception/                # Excepciones compartidas
-    ├── GlobalExceptionHandler.java
-    ├── ResourceNotFoundException.java
-    └── ConflictoHorarioException.java
+├── auth/           # Login, registration, refresh tokens, password reset (rate-limited)
+├── cita/           # Appointments: booking, conflicts, availability slots, business hours
+├── config/         # Cross-cutting config (async events, scheduling)
+├── estadistica/    # Business statistics for the admin dashboard (ADMIN only)
+├── exception/      # Global exception handling and shared exceptions
+├── notificacion/   # Domain events, email notifications and the 24h reminder scheduler
+├── pago/           # Payments: Stripe PaymentIntents, webhooks, manual payments, refunds
+├── peluquero/      # Barbers: CRUD and per-barber availability
+├── security/       # SecurityConfig, JWT service and filter, CORS
+├── servicio/       # Service catalog
+└── usuario/        # Users, roles, soft delete, search
 ```
+
+Each business module follows the same layout: JPA entity, controller, service, repository and a `dto/` package.
 
 ## Tests
 
-132 unit tests que cubren toda la logica de negocio, ejecutandose sin Spring context ni base de datos (~3 segundos):
+**167 tests** run in CI on every push (GitHub Actions).
 
-| Clase | Tests | Cobertura |
-|-------|-------|-----------|
-| UsuarioServiceTest | 24 | CRUD, email duplicado, encriptacion, soft delete, ownership, reactivar, paginacion, busqueda |
-| CitaServiceTest | 30 | Agendar, horarios, conflictos, CRUD, ownership, disponibilidad, paginacion, auto-confirmacion al pagar |
+### Unit tests (157)
+
+They cover all business logic without Spring context or database (a few seconds):
+
+| Class | Tests | Coverage |
+|-------|-------|----------|
+| CitaServiceTest | 40 | Booking, business hours, conflicts, CRUD, ownership, availability, pagination, barber validation, auto-confirmation on payment |
+| UsuarioServiceTest | 26 | CRUD, duplicate email, hashing, soft delete, ownership, reactivation, pagination, search |
+| PagoServiceTest | 23 | PaymentIntents, webhooks, manual payment, refunds, polling, concurrency |
+| JwtServiceTest | 9 | Token generation/extraction/validation, signatures, tokenVersion |
 | ServicioServiceTest | 9 | CRUD, soft delete |
-| JwtServiceTest | 9 | Generar/extraer/validar tokens, firmas, tokenVersion |
-| AuthControllerTest | 8 | Login, registro, refresh token, credenciales invalidas |
-| CustomUserDetailsServiceTest | 4 | Carga de usuario, roles, estado |
-| JwtAuthenticationFilterTest | 7 | Filtro con/sin token, token invalido/expirado, cuenta desactivada, tokenVersion |
-| PasswordResetServiceTest | 7 | Solicitud, restablecimiento, expiracion, anti-enumeracion |
-| PagoServiceTest | 23 | PaymentIntents, webhooks, pago manual, reembolso, polling, concurrencia |
+| AuthControllerTest | 8 | Login, registration, invalid credentials |
+| RefreshTokenServiceTest | 8 | Rotation, revocation, expiration |
+| JwtAuthenticationFilterTest | 7 | Filter with/without token, invalid/expired token, deactivated account, tokenVersion |
+| PasswordResetServiceTest | 7 | Request, reset, expiration, anti-enumeration |
+| PeluqueroServiceTest | 7 | Barber CRUD, soft delete |
+| RecordatorioCitaSchedulerTest | 5 | 24h reminder: sends once, skips cancelled/already-notified, injectable Clock |
+| CustomUserDetailsServiceTest | 4 | User loading, roles, status |
+| EstadisticasServiceTest | 3 | Aggregations, revenue breakdown, refund exclusion |
 
-
-Para ejecutar los tests:
 ```bash
+# Unit tests only (no Docker needed)
+./mvnw test -Dtest='!*IntegrationTest'
+```
+
+### Integration tests (10, Testcontainers)
+
+They boot the full application against a **real PostgreSQL** started in Docker (`@ServiceConnection`), with Flyway migrations applied:
+
+* **AuthIntegrationTest** — full register/login flow over HTTP.
+* **OwnershipIntegrationTest** — a user cannot read (GET) or edit (PUT) someone else's appointment (403); `/api/usuarios/me` never exposes the password.
+* **WebhookIntegrationTest** — end-to-end Stripe webhook: a signed `payment_intent.succeeded` event is verified with the **real Stripe SDK signature check**, the payment becomes `PAGADO` and the appointment is confirmed; duplicated events are processed only once (idempotency); invalid signatures get 400.
+* **EstadisticasIntegrationTest** — statistics over real data: default 30-day range, revenue by payment method, refunds excluded.
+
+```bash
+# Full suite, integration tests included (requires Docker running)
 ./mvnw test
 ```
 
-## Endpoints de la API
+## API Endpoints
 
-### Autenticacion (publico)
-| Metodo | Endpoint | Descripcion |
+### Authentication (public)
+| Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/auth/registro` | Registrar nuevo usuario |
-| POST | `/api/auth/login` | Iniciar sesion (devuelve token JWT) |
-| POST | `/api/auth/recuperar` | Solicitar enlace de recuperacion de contrasena (responde 200 siempre, anti-enumeracion) |
-| POST | `/api/auth/reset` | Restablecer la contrasena con el token recibido por correo (un solo uso, caduca) |
-| POST | `/api/auth/refresh` | Rotar refresh token (devuelve nuevo access + refresh token) |
-| POST | `/api/auth/logout` | Revocar refresh token (inhabilitar sesion) |
+| POST | `/api/auth/registro` | Register a new user |
+| POST | `/api/auth/login` | Log in (returns JWT + refresh token) |
+| POST | `/api/auth/recuperar` | Request a password-reset link (always 200, anti-enumeration) |
+| POST | `/api/auth/reset` | Reset the password with the emailed token (single use, expires) |
+| POST | `/api/auth/refresh` | Rotate the refresh token (returns new access + refresh token) |
+| POST | `/api/auth/logout` | Revoke the refresh token |
 
-> Los endpoints de recuperacion estan limitados por IP (rate limiting con Bucket4j):
-> por defecto 5 peticiones cada 15 minutos. Al superarlo responden 429. Configurable con
-> `RESET_EXPIRACION_MINUTOS`, `RATELIMIT_RESET_CAPACIDAD` y `RATELIMIT_RESET_VENTANA_MINUTOS`.
-> El enlace del correo apunta a `FRONTEND_URL` + `/reset?token=...`.
+> Password-reset endpoints are rate-limited per IP (Bucket4j): 5 requests every 15 minutes by default; exceeding it returns 429. Configurable via `RESET_EXPIRACION_MINUTOS`, `RATELIMIT_RESET_CAPACIDAD` and `RATELIMIT_RESET_VENTANA_MINUTOS`. The email link points to `FRONTEND_URL` + `/reset?token=...`.
 
-### Servicios
-| Metodo | Endpoint | Acceso | Descripcion |
+### Services
+| Method | Endpoint | Access | Description |
 |--------|----------|--------|-------------|
-| GET | `/api/servicios` | Publico | Listar servicios activos |
-| GET | `/api/servicios/{id}` | Publico | Obtener servicio por ID |
-| POST | `/api/servicios` | ADMIN | Crear servicio |
-| PUT | `/api/servicios/{id}` | ADMIN | Actualizar servicio |
-| DELETE | `/api/servicios/{id}` | ADMIN | Desactivar servicio (soft delete) |
+| GET | `/api/servicios` | Public | List active services |
+| GET | `/api/servicios/{id}` | Public | Get a service by ID |
+| POST | `/api/servicios` | ADMIN | Create a service |
+| PUT | `/api/servicios/{id}` | ADMIN | Update a service |
+| DELETE | `/api/servicios/{id}` | ADMIN | Deactivate a service (soft delete) |
 
-### Usuarios
-| Metodo | Endpoint | Acceso | Descripcion |
+### Users
+| Method | Endpoint | Access | Description |
 |--------|----------|--------|-------------|
-| GET | `/api/usuarios` | ADMIN | Listar usuarios (paginado). `?incluirInactivos=true` incluye desactivados. `?search=` filtra por nombre o email (contains, case-insensitive, sobre toda la tabla) |
-| GET | `/api/usuarios/{id}` | Propio/ADMIN | Obtener usuario por ID (solo el propio o ADMIN) |
-| POST | `/api/usuarios` | ADMIN | Crear usuario |
-| PUT | `/api/usuarios/{id}` | Propio/ADMIN | Actualizar usuario (solo el propio o ADMIN) |
-| PATCH | `/api/usuarios/{id}/rol` | ADMIN | Cambiar rol (con guard anti-lockout del ultimo ADMIN) |
-| PATCH | `/api/usuarios/{id}/activar` | ADMIN | Reactivar un usuario desactivado |
-| DELETE | `/api/usuarios/{id}` | ADMIN | Desactivar usuario (soft delete) |
+| GET | `/api/usuarios` | ADMIN | List users (paginated). `?incluirInactivos=true` includes deactivated ones. `?search=` filters by name or email |
+| GET | `/api/usuarios/{id}` | Own/ADMIN | Get a user by ID |
+| POST | `/api/usuarios` | ADMIN | Create a user |
+| PUT | `/api/usuarios/{id}` | Own/ADMIN | Update a user |
+| PATCH | `/api/usuarios/{id}/rol` | ADMIN | Change a user's role (with last-ADMIN anti-lockout guard) |
+| PATCH | `/api/usuarios/{id}/activar` | ADMIN | Reactivate a deactivated user |
+| DELETE | `/api/usuarios/{id}` | ADMIN | Deactivate a user (soft delete) |
 
-### Citas
-| Metodo | Endpoint | Acceso | Descripcion |
+### Appointments
+| Method | Endpoint | Access | Description |
 |--------|----------|--------|-------------|
-| GET | `/api/citas` | USER/ADMIN | Listar citas (paginado). USER ve solo las suyas, ADMIN todas |
-| GET | `/api/citas/disponibilidad` | USER/ADMIN | Slots libres para `?fecha=YYYY-MM-DD&idServicio=N` |
-| GET | `/api/citas/{id}` | Propio/ADMIN | Obtener cita por ID (solo dueno o ADMIN) |
-| POST | `/api/citas` | USER/ADMIN | Agendar cita (un USER solo para si mismo) |
-| PUT | `/api/citas/{id}` | Propio/ADMIN | Actualizar cita (solo dueno o ADMIN) |
-| DELETE | `/api/citas/{id}` | Propio/ADMIN | Eliminar cita (solo dueno o ADMIN) |
+| GET | `/api/citas` | USER/ADMIN | List appointments (paginated). A USER only sees their own, an ADMIN sees all |
+| GET | `/api/citas/disponibilidad` | USER/ADMIN | Free slots for `?fecha=YYYY-MM-DD&idServicio=N`. Optional `&peluqueroId=N` for a specific barber |
+| GET | `/api/citas/{id}` | Own/ADMIN | Get an appointment by ID |
+| POST | `/api/citas` | USER/ADMIN | Book an appointment (a USER only for themselves), optionally with a barber |
+| PUT | `/api/citas/{id}` | Own/ADMIN | Update an appointment |
+| DELETE | `/api/citas/{id}` | Own/ADMIN | Delete an appointment |
 
-### Pagos
-| Metodo | Endpoint | Acceso | Descripcion |
+### Barbers
+| Method | Endpoint | Access | Description |
 |--------|----------|--------|-------------|
-| POST | `/api/pagos/crear-intent` | USER/ADMIN | Crear Stripe PaymentIntent para una cita |
-| POST | `/api/pagos/webhook` | Publico | Webhook de Stripe (eventos asincronos) |
-| POST | `/api/pagos/manual` | ADMIN | Registrar pago en efectivo o transferencia |
-| POST | `/api/pagos/{citaId}/reembolsar` | ADMIN | Reembolsar un pago (stripe o manual) |
-| GET | `/api/pagos/cita/{citaId}` | Propio/ADMIN | Consultar pago por ID de cita |
+| GET | `/api/peluqueros` | Authenticated | List active barbers |
+| GET | `/api/peluqueros/{id}` | Authenticated | Get a barber by ID |
+| POST | `/api/peluqueros` | ADMIN | Create a barber |
+| PUT | `/api/peluqueros/{id}` | ADMIN | Update a barber |
+| DELETE | `/api/peluqueros/{id}` | ADMIN | Deactivate a barber (soft delete) |
 
-### Documentacion (publico)
-| Metodo | Endpoint | Descripcion |
+### Payments
+| Method | Endpoint | Access | Description |
+|--------|----------|--------|-------------|
+| POST | `/api/pagos/crear-intent` | USER/ADMIN | Create a Stripe PaymentIntent for an appointment |
+| POST | `/api/pagos/webhook` | Public | Stripe webhook (signature-verified, idempotent) |
+| POST | `/api/pagos/manual` | ADMIN | Register a cash or bank-transfer payment |
+| POST | `/api/pagos/{citaId}/reembolsar` | ADMIN | Refund a payment (Stripe or manual) |
+| GET | `/api/pagos/cita/{citaId}` | Own/ADMIN | Get the payment of an appointment |
+
+### Statistics
+| Method | Endpoint | Access | Description |
+|--------|----------|--------|-------------|
+| GET | `/api/estadisticas` | ADMIN | Appointments by status, revenue by payment method, top services and new customers. `?desde=YYYY-MM-DD&hasta=YYYY-MM-DD` optional; defaults to the last 30 days |
+
+### Documentation (public)
+| Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/swagger-ui.html` | Interfaz Swagger UI interactiva |
-| GET | `/v3/api-docs` | Especificacion OpenAPI en JSON |
+| GET | `/swagger-ui.html` | Interactive Swagger UI |
+| GET | `/v3/api-docs` | OpenAPI specification (JSON) |
 
-## Modelo de Datos
+## Data Model
 
-* **`usuarios`**: Clientes y administradores. Almacena nombre, email (unico), telefono, contrasena (encriptada), rol y estado activo/inactivo.
-* **`servicios`**: Catalogo de la peluqueria (ej. cortes, tinturas, alisados). Almacena descripcion, duracion en minutos, precio y estado activo/inactivo.
-* **`citas`**: Entidad transaccional que vincula a un `usuario` con un `servicio` en una `fechaHora` especifica. Gestiona su estado mediante un `Enum` (`PENDIENTE`, `CONFIRMADA`, `ANULADA`).
-* **`pagos`**: Pagos vinculados 1:1 a una cita. Soporta tarjeta (Stripe), efectivo y transferencia. Estados: `PENDIENTE`, `PAGADO`, `REEMBOLSADO`, `CANCELADO`.
-* **`password_reset_token`**: Tokens de un solo uso para restablecimiento de contrasena, con expiracion configurable.
-* **`refresh_token`**: Tokens de refresco JWT persistentes para rotacion de sesion.
+Schema is managed with **Flyway** (migrations `V1` to `V7` in `src/main/resources/db/migration/`):
 
-## Configuracion y Puesta en Marcha
+* **`usuarios`** — customers and administrators: name, unique email, phone, hashed password, role, active flag and `token_version`.
+* **`servicios`** — salon catalog (haircuts, coloring...): description, duration in minutes, price, active flag.
+* **`peluqueros`** — barbers/stylists, with soft delete. An appointment may optionally be assigned to one.
+* **`citas`** — links a `usuario` with a `servicio` (and optionally a `peluquero`) at a specific time. Status enum (`PENDIENTE`, `CONFIRMADA`, `ANULADA`) and a `recordatorio_enviado` flag for the 24h reminder.
+* **`pagos`** — payments linked 1:1 to an appointment. Card (Stripe), cash or transfer. Status: `PENDIENTE`, `PAGADO`, `REEMBOLSADO`, `CANCELADO`.
+* **`stripe_evento`** — processed Stripe event IDs, guaranteeing webhook idempotency.
+* **`password_reset_token`** — single-use password reset tokens with expiration.
+* **`refresh_token`** — persistent refresh tokens for session rotation.
 
-### Prerrequisitos
-* Java Development Kit (JDK) 21 instalado en tu maquina.
-* PostgreSQL instalado y corriendo en el puerto local `5432`.
-* Git para la clonacion del repositorio.
+## Getting Started
 
-### Instalacion local
+### Option A — Docker Compose (fastest)
 
-1.  **Clonar el repositorio:**
-    ```bash
-    git clone https://github.com/eduardoandr3s/peluqueria_citas.git
-    cd peluqueria_citas
-    ```
+With Docker installed, a single command starts PostgreSQL and the API:
 
-2.  **Preparar la Base de Datos:**
-    Abre tu gestor de base de datos (ej. pgAdmin o DBeaver) y crea una base de datos vacia con el nombre:
+```bash
+git clone https://github.com/eduardoandr3s/peluqueria_citas.git
+cd peluqueria_citas
+docker compose up --build
+```
+
+The API is available at `http://localhost:8080` (Swagger UI at `/swagger-ui.html`). Flyway applies all migrations automatically. Email sending is disabled (`MAIL_ENABLED=false`) and Stripe keys are not needed unless you test payments.
+
+### Option B — Local JDK + PostgreSQL
+
+1. **Prerequisites:** JDK 21 and a PostgreSQL instance on port `5432`.
+
+2. **Create the database:**
     ```sql
     CREATE DATABASE peluqueria_db;
     ```
 
-3.  **Configurar Variables de Entorno:**
-    El proyecto utiliza variables de entorno para proteger credenciales. Configura las siguientes en tu sistema o IDE:
-    * `DB_USERNAME`: Tu usuario de PostgreSQL.
-    * `DB_PASSWORD`: Tu contrasena de PostgreSQL.
-    * `JWT_SECRET`: Clave secreta para firmar tokens JWT (minimo 32 caracteres).
-    * `STRIPE_SECRET_KEY`: Clave secreta de Stripe (modo test o production).
-    * `STRIPE_WEBHOOK_SECRET`: Clave del webhook de Stripe (para validar eventos).
-    * `MAIL_USERNAME` / `MAIL_PASSWORD`: Credenciales SMTP para correo (recuperacion de contrasena, notificaciones).
-    * `BUSINESS_EMAIL`: Correo del negocio para notificaciones.
-    * `FRONTEND_URL`: URL del frontend para enlaces en correos (default `http://localhost:4200`).
-    * `CORS_ALLOWED_ORIGINS` *(solo perfil `prod`)*: Origen(es) permitidos para CORS, separados por coma (ej. `https://admin.tu-dominio.com`). En el perfil `dev` no hace falta: ya viene fijado a `http://localhost:4200`. Si no se define en `prod`, usa el fallback `https://admin.tu-dominio.com`.
+3. **Set environment variables** (in your system or IDE):
+    * `DB_USERNAME` / `DB_PASSWORD`: PostgreSQL credentials.
+    * `JWT_SECRET`: secret key for signing JWTs (at least 32 characters).
+    * `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` *(optional)*: Stripe keys (test mode) to use payments.
+    * `MAIL_USERNAME` / `MAIL_PASSWORD` *(optional)*: SMTP credentials for emails; set `MAIL_ENABLED=false` to disable email sending in dev.
+    * `BUSINESS_EMAIL`: business email address for notifications.
+    * `FRONTEND_URL`: frontend URL used in email links (default `http://localhost:4200`).
+    * `CORS_ALLOWED_ORIGINS` *(prod profile only)*: comma-separated allowed origins. The `dev` profile already allows `http://localhost:4200`.
 
-    *(El perfil `dev` usa `ddl-auto=validate` + Flyway para gestionar el esquema. Las migraciones estan en `src/main/resources/db/migration/`. Al iniciar, Flyway aplica automaticamente las migraciones pendientes.)*
+    *(Business hours can be adjusted with `peluqueria.horario.apertura` and `peluqueria.horario.cierre`; default 09:00-20:00.)*
 
-    *(Opcional: el horario laboral se puede ajustar con `peluqueria.horario.apertura` y `peluqueria.horario.cierre` en `application.properties`. Por defecto 09:00-20:00.)*
-
-4.  **Ejecutar la aplicacion:**
+4. **Run the application:**
     ```bash
     ./mvnw spring-boot:run
     ```
-    La API estara disponible en `http://localhost:8080`. La documentacion interactiva (Swagger UI) en `http://localhost:8080/swagger-ui.html`.
 
-5.  **Crear un usuario ADMIN (opcional):**
-    Despues de registrar un usuario, promuevelo a ADMIN directamente en PostgreSQL:
+5. **Create an ADMIN user (optional):** register a user, then promote it directly in PostgreSQL:
     ```sql
-    UPDATE usuarios SET rol = 'ADMIN' WHERE email = 'tu-email@ejemplo.com';
+    UPDATE usuarios SET rol = 'ADMIN' WHERE email = 'your-email@example.com';
     ```
 
-## Roadmap / Proximos Pasos
+## Deployment
 
-- [x] Arquitectura inicial, dependencias y conexion a PostgreSQL.
-- [x] Creacion de entidades ORM (`Servicio`, `Usuario`, `Cita`) con relaciones `@ManyToOne`.
-- [x] Implementacion del Patron DTO, Validaciones de entrada y Manejo Global de Excepciones.
-- [x] CRUD completo (GET, POST, PUT, DELETE) para todas las entidades.
-- [x] Encriptacion de contrasenas (BCrypt) e implementacion de Spring Security.
-- [x] Variables de entorno para credenciales sensibles.
-- [x] Refactorizacion y estandarizacion de codigo a `camelCase`.
-- [x] Validacion de conflictos de horarios en citas.
-- [x] Validacion de fecha futura y horario laboral (L-S, 9:00-20:00).
-- [x] Validacion de unicidad de email al crear y actualizar usuarios.
-- [x] Soft delete en usuarios y servicios.
-- [x] DTOs con validaciones (`@Valid`) para todas las entidades.
-- [x] Handler generico de excepciones (sin exponer stack traces).
-- [x] Perfiles de configuracion separados (dev/prod).
-- [x] Autenticacion JWT y autorizacion por roles (USER/ADMIN).
-- [x] Constructor injection y eliminacion de `@Data` en entidades JPA.
-- [x] Reestructuracion de paquetes por dominio (usuario, cita, servicio, auth, security).
-- [x] Suite de 132 unit tests (services, security, controller, pagos).
-- [x] Configuracion de CORS por perfil (origenes externalizados a `CORS_ALLOWED_ORIGINS` en prod).
-- [x] Endpoint para que un ADMIN cambie el rol de un usuario (con guard anti-lockout).
-- [x] Control de propiedad (ownership) en citas y usuarios; DTOs de respuesta para Cita/Servicio (no se exponen entidades).
-- [x] Paginacion y ordenacion en listados de citas y usuarios.
-- [x] Endpoint de disponibilidad de horarios y horario laboral configurable.
-- [x] Listar/reactivar usuarios desactivados (`?incluirInactivos=true`, `PATCH /{id}/activar`).
-- [x] Logging (SLF4J) y `@Transactional` en la capa de servicio.
-- [x] Documentacion OpenAPI / Swagger UI (springdoc).
-- [x] Busqueda de usuarios por nombre o email (`?search=`, server-side).
-- [x] Endurecimiento de sesion: expiracion 4h, validacion de cuenta activa por request y revocacion de tokens via `tokenVersion` (al cambiar password o rol).
-- [x] Frontend de administracion (Angular, repositorio aparte) consumiendo esta API.
-- [x] Refresh tokens, Password Reset (con rate limiting y token de un solo uso).
-- [x] Pagos online con Stripe: PaymentIntents, webhooks, polling, reembolsos.
-- [x] Migraciones Flyway para gestion de esquema en produccion.
-- [x] App movil (Ionic 8 + Angular) para clientes, con pago integrado.
+* **API:** Render (Docker, multi-stage `Dockerfile` in this repo). Every push to `main` triggers a redeploy.
+* **Database:** Neon (serverless PostgreSQL).
+* **Frontends:** Firebase Hosting (see below).
+* **CI:** GitHub Actions runs the full suite — unit + Testcontainers integration tests — on every push and pull request.
 
 ## Frontend
 
-El proyecto incluye dos aplicaciones frontend en repositorio separado:
+The project includes two frontend applications in a separate repository:
 
-* **Panel de administracion** ([Angular 21](https://angular.dev) + Tailwind v4): `http://localhost:4200`
-* **App movil para clientes** ([Ionic 8](https://ionicframework.com) + Angular zoneless): `http://localhost:8100`
+* **Admin panel** ([Angular 21](https://angular.dev) zoneless + Tailwind v4), with appointment/user/service/barber management, payments and a statistics dashboard.
+* **Customer mobile app** ([Ionic 8](https://ionicframework.com) + Angular zoneless + Capacitor), with booking, barber selection, Stripe payment and biometric login.
 
-Ambos estan en el monorepo [peluqueria_citas_frontend](https://github.com/eduardoandr3s/peluqueria_citas_frontend) con npm workspaces, compartiendo tipos y servicios en `packages/core`.
+Both live in the [peluqueria_citas_frontend](https://github.com/eduardoandr3s/peluqueria_citas_frontend) monorepo (npm workspaces), sharing models and services through the `packages/core` library.
 
 ---
-*Desarrollado por Eduardo Andres Segovia Roman.*
+*Developed by Eduardo Andres Segovia Roman.*
