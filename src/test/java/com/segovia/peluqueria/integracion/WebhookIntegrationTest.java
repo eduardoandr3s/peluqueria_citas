@@ -2,6 +2,7 @@ package com.segovia.peluqueria.integracion;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.stripe.Stripe;
 import com.segovia.peluqueria.pago.EstadoPago;
 import com.segovia.peluqueria.pago.MetodoPago;
 import com.segovia.peluqueria.pago.PaymentGateway;
@@ -184,6 +185,9 @@ class WebhookIntegrationTest extends AbstractIntegrationTest {
         return MAPPER.writeValueAsString(Map.of(
                 "id", "evt_test_duplicate_001",
                 "type", "payment_intent.succeeded",
+                // Los eventos reales de Stripe siempre traen api_version; sin el, el
+                // EventDataObjectDeserializer del SDK lanza NPE al comparar versiones.
+                "api_version", Stripe.API_VERSION,
                 "data", Map.of(
                         "object", Map.of(
                                 "id", paymentIntentId,
