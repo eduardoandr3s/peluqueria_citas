@@ -260,7 +260,7 @@ La API queda disponible en `http://localhost:8080` (Swagger UI en `/swagger-ui.h
 El proyecto incluye dos aplicaciones frontend en un repositorio separado:
 
 * **Panel de administración** ([Angular 21](https://angular.dev) zoneless + Tailwind v4), con gestión de citas/usuarios/servicios/peluqueros, pagos y dashboard de estadísticas.
-* **App móvil para clientes** ([Ionic 8](https://ionicframework.com) + Angular zoneless + Capacitor), con reserva de citas, selección de peluquero, pago con Stripe y login biométrico.
+* **App móvil para clientes** ([Ionic 8](https://ionicframework.com) + Angular + Capacitor), con reserva de citas, selección de peluquero, pago con Stripe y login biométrico.
 
 Ambos viven en el monorepo [peluqueria_citas_frontend](https://github.com/eduardoandr3s/peluqueria_citas_frontend) (npm workspaces), compartiendo modelos y servicios en la librería `packages/core`.
 
