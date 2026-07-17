@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.segovia.peluqueria.pago.EstadoPago;
 import com.segovia.peluqueria.pago.MetodoPago;
 import com.segovia.peluqueria.pago.PaymentGateway;
+import com.segovia.peluqueria.pago.StripePaymentGateway;
 import com.segovia.peluqueria.pago.dto.PagoResponseDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -214,12 +215,18 @@ class WebhookIntegrationTest extends AbstractIntegrationTest {
         return "http://localhost:" + port + path;
     }
 
+    /**
+     * Solo se stubbean las operaciones del gateway que llamarían a la red (crear/recuperar/cancelar
+     * intent, reembolso). La verificación de firma del webhook se DELEGA en el adaptador real
+     * {@link StripePaymentGateway}, que usa {@code com.stripe.net.Webhook.constructEvent} con el
+     * {@code stripe.webhook-secret} de test. Así el IT ejercita la verificación de firma REAL de Stripe.
+     */
     @TestConfiguration
     static class TestStripeConfig {
 
         @Bean
         @Primary
-        PaymentGateway testPaymentGateway() {
+        PaymentGateway testPaymentGateway(StripePaymentGateway stripeReal) {
             return new PaymentGateway() {
                 @Override
                 public IntentPasarela crearIntent(BigDecimal monto, String descripcion, Integer citaId) {
@@ -241,41 +248,7 @@ class WebhookIntegrationTest extends AbstractIntegrationTest {
 
                 @Override
                 public EventoPasarela validarWebhook(String payload, String firma) {
-                    try {
-                        String secret = WEBHOOK_SECRET;
-                        // Extraer timestamp y firma del header
-                        String t = null;
-                        String v1 = null;
-                        for (String parte : firma.split(",")) {
-                            String[] kv = parte.split("=", 2);
-                            if (kv.length == 2) {
-                                if ("t".equals(kv[0])) t = kv[1];
-                                if ("v1".equals(kv[0])) v1 = kv[1];
-                            }
-                        }
-                        if (t == null || v1 == null) {
-                            throw new IllegalArgumentException("Formato de firma invalido");
-                        }
-                        String toSign = t + "." + payload;
-                        Mac mac = Mac.getInstance("HmacSHA256");
-                        SecretKeySpec key = new SecretKeySpec(secret.getBytes(), "HmacSHA256");
-                        mac.init(key);
-                        String esperada = HexFormat.of().formatHex(mac.doFinal(toSign.getBytes()));
-                        if (!esperada.equals(v1)) {
-                            throw new IllegalArgumentException("Firma del webhook invalida.");
-                        }
-                        // Parsear payload
-                        var json = MAPPER.readTree(payload);
-                        String eventId = json.get("id").asText();
-                        String tipo = json.get("type").asText();
-                        String piId = json.path("data").path("object").path("id").asText(null);
-                        return new EventoPasarela(eventId, tipo, piId);
-                    } catch (Exception e) {
-                        if (e instanceof IllegalArgumentException iae) {
-                            throw iae;
-                        }
-                        throw new IllegalArgumentException("Error al validar webhook: " + e.getMessage());
-                    }
+                    return stripeReal.validarWebhook(payload, firma);
                 }
             };
         }

@@ -64,6 +64,15 @@ class OwnershipIntegrationTest extends AbstractIntegrationTest {
         assertEquals(HttpStatus.FORBIDDEN, citaBResp.getStatusCode(),
                 "User B no debe poder ver la cita de User A");
 
+        // User B intenta EDITAR (PUT) la cita de User A → 403
+        LocalDateTime otraHora = maniana.plusHours(1);
+        ResponseEntity<String> editBResp = rest.exchange(url("/api/citas/" + idCita),
+                HttpMethod.PUT,
+                new HttpEntity<>(Map.of("fechaHora", otraHora.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)), headersB),
+                String.class);
+        assertEquals(HttpStatus.FORBIDDEN, editBResp.getStatusCode(),
+                "User B no debe poder editar la cita de User A");
+
         // ADMIN puede leer cualquier cita
         var headersAdmin = new HttpHeaders();
         headersAdmin.setBearerAuth(tokenAdmin);
@@ -71,6 +80,13 @@ class OwnershipIntegrationTest extends AbstractIntegrationTest {
                 HttpMethod.GET, new HttpEntity<>(headersAdmin), Map.class);
         assertEquals(HttpStatus.OK, citaAdminResp.getStatusCode());
         assertEquals(idCita, citaAdminResp.getBody().get("idCita"));
+
+        // Ninguna respuesta de usuario debe filtrar el password: ni el login ni /usuarios/me
+        ResponseEntity<String> meResp = rest.exchange(url("/api/usuarios/me"),
+                HttpMethod.GET, new HttpEntity<>(headersA), String.class);
+        assertEquals(HttpStatus.OK, meResp.getStatusCode());
+        assertFalse(meResp.getBody().toLowerCase().contains("password"),
+                "La respuesta de /usuarios/me no debe contener el campo password");
     }
 
     private void registrarUsuario(String email, String password) {
