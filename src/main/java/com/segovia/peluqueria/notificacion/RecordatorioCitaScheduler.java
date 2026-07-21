@@ -36,7 +36,9 @@ public class RecordatorioCitaScheduler {
         this.horasAntes = horasAntes;
     }
 
-    @Scheduled(fixedRate = 900_000) // cada 15 minutos
+    // Cada hora: el recordatorio se envia con 24 h de antelacion, asi que comprobar
+    // una vez por hora sigue garantizando >=23 h de aviso y reduce conexiones a la BD.
+    @Scheduled(fixedRate = 3_600_000)
     @Transactional
     public void procesarRecordatorios() {
         LocalDateTime ahora = LocalDateTime.now(clock);

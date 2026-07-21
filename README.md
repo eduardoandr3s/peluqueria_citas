@@ -251,7 +251,7 @@ The API is available at `http://localhost:8080` (Swagger UI at `/swagger-ui.html
 ## Deployment
 
 * **API:** Render (Docker, multi-stage `Dockerfile` in this repo). Every push to `main` triggers a redeploy.
-* **Database:** Neon (serverless PostgreSQL).
+* **Database:** Supabase (managed PostgreSQL, connected through its IPv4 session pooler).
 * **Frontends:** Firebase Hosting (see below).
 * **CI:** GitHub Actions runs the full suite — unit + Testcontainers integration tests — on every push and pull request.
 
