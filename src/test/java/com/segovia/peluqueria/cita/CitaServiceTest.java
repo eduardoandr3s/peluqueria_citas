@@ -8,6 +8,9 @@ import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.notificacion.evento.CitaAgendadaEvent;
 import com.segovia.peluqueria.notificacion.evento.CitaAnuladaEvent;
 import com.segovia.peluqueria.notificacion.evento.CitaModificadaEvent;
+import com.segovia.peluqueria.pago.EstadoPago;
+import com.segovia.peluqueria.pago.Pago;
+import com.segovia.peluqueria.pago.PagoRepository;
 import com.segovia.peluqueria.peluquero.Peluquero;
 import com.segovia.peluqueria.peluquero.PeluqueroRepository;
 import com.segovia.peluqueria.servicio.Servicio;
@@ -47,6 +50,7 @@ class CitaServiceTest {
     private UsuarioRepository usuarioRepository;
     private ServicioRepository servicioRepository;
     private PeluqueroRepository peluqueroRepository;
+    private PagoRepository pagoRepository;
     private ApplicationEventPublisher eventPublisher;
     private CitaService citaService;
 
@@ -58,10 +62,14 @@ class CitaServiceTest {
         usuarioRepository = mock(UsuarioRepository.class);
         servicioRepository = mock(ServicioRepository.class);
         peluqueroRepository = mock(PeluqueroRepository.class);
+        pagoRepository = mock(PagoRepository.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
+        // Por defecto no hay pagos: las citas se mapean con estadoPago null.
+        when(pagoRepository.findByCitaIdCitaIn(any())).thenReturn(List.of());
+        when(pagoRepository.findByCitaIdCita(anyInt())).thenReturn(Optional.empty());
         // HorarioProperties con sus valores por defecto: 09:00 - 20:00.
         // Clock del sistema para que "ahora" coincida con los LocalDateTime.now() de los helpers.
-        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository, peluqueroRepository, new HorarioProperties(), eventPublisher, Clock.systemDefaultZone());
+        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository, peluqueroRepository, pagoRepository, new HorarioProperties(), eventPublisher, Clock.systemDefaultZone());
 
         // Por defecto, el usuario autenticado es un ADMIN (acceso total).
         Usuario admin = new Usuario();
@@ -209,7 +217,7 @@ class CitaServiceTest {
         // (host en UTC dejaba agendar en el pasado local).
         Clock relojMadrid = Clock.fixed(Instant.parse("2026-07-20T13:37:00Z"), ZoneId.of("Europe/Madrid"));
         citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository,
-                peluqueroRepository, new HorarioProperties(), eventPublisher, relojMadrid);
+                peluqueroRepository, pagoRepository, new HorarioProperties(), eventPublisher, relojMadrid);
 
         CitaRequestDTO request = crearRequestValido();
         request.setFechaHora(LocalDateTime.of(2026, 7, 20, 14, 0));
@@ -377,6 +385,30 @@ class CitaServiceTest {
         assertEquals(2, resultado.getTotalElements());
         verify(citaRepository).findAll(pageable);
         verify(citaRepository, never()).findByUsuarioIdUsuario(any(), any());
+    }
+
+    @Test
+    void listarCitas_incluyeEstadoPagoEnUnaSolaConsulta() {
+        Cita c1 = new Cita();
+        c1.setIdCita(1);
+        Cita c2 = new Cita();
+        c2.setIdCita(2);
+
+        // c1 tiene un pago PAGADO; c2 no tiene pago -> estadoPago null.
+        Pago pagoC1 = new Pago();
+        pagoC1.setCita(c1);
+        pagoC1.setEstadoPago(EstadoPago.PAGADO);
+
+        when(citaRepository.findAll(pageable)).thenReturn(new PageImpl<>(List.of(c1, c2)));
+        when(pagoRepository.findByCitaIdCitaIn(List.of(1, 2))).thenReturn(List.of(pagoC1));
+
+        List<CitaResponseDTO> citas = citaService.listarCitas(EMAIL_ADMIN, pageable).getContent();
+
+        assertEquals(EstadoPago.PAGADO, citas.get(0).getEstadoPago());
+        assertNull(citas.get(1).getEstadoPago());
+        // Una sola consulta batch, sin N+1 por cita.
+        verify(pagoRepository).findByCitaIdCitaIn(List.of(1, 2));
+        verify(pagoRepository, never()).findByCitaIdCita(any());
     }
 
     @Test

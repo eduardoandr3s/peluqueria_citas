@@ -1,6 +1,7 @@
 package com.segovia.peluqueria.cita.dto;
 
 import com.segovia.peluqueria.cita.EstadoCita;
+import com.segovia.peluqueria.pago.EstadoPago;
 import com.segovia.peluqueria.peluquero.dto.PeluqueroResponseDTO;
 import com.segovia.peluqueria.servicio.dto.ServicioResponseDTO;
 import com.segovia.peluqueria.usuario.dto.UsuarioResponseDTO;
@@ -16,4 +17,6 @@ public class CitaResponseDTO {
     private UsuarioResponseDTO usuario;
     private ServicioResponseDTO servicio;
     private PeluqueroResponseDTO peluquero;
+    // Estado del pago asociado a la cita; null si la cita no tiene ningun pago registrado.
+    private EstadoPago estadoPago;
 }

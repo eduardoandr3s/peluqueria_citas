@@ -8,6 +8,9 @@ import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.notificacion.evento.CitaAgendadaEvent;
 import com.segovia.peluqueria.notificacion.evento.CitaAnuladaEvent;
 import com.segovia.peluqueria.notificacion.evento.CitaModificadaEvent;
+import com.segovia.peluqueria.pago.EstadoPago;
+import com.segovia.peluqueria.pago.Pago;
+import com.segovia.peluqueria.pago.PagoRepository;
 import com.segovia.peluqueria.peluquero.Peluquero;
 import com.segovia.peluqueria.peluquero.PeluqueroRepository;
 import com.segovia.peluqueria.peluquero.dto.PeluqueroResponseDTO;
@@ -32,6 +35,9 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class CitaService {
@@ -42,6 +48,7 @@ public class CitaService {
     private final UsuarioRepository usuarioRepository;
     private final ServicioRepository servicioRepository;
     private final PeluqueroRepository peluqueroRepository;
+    private final PagoRepository pagoRepository;
     private final HorarioProperties horario;
     private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
@@ -50,6 +57,7 @@ public class CitaService {
                        UsuarioRepository usuarioRepository,
                        ServicioRepository servicioRepository,
                        PeluqueroRepository peluqueroRepository,
+                       PagoRepository pagoRepository,
                        HorarioProperties horario,
                        ApplicationEventPublisher eventPublisher,
                        Clock clock) {
@@ -57,6 +65,7 @@ public class CitaService {
         this.usuarioRepository = usuarioRepository;
         this.servicioRepository = servicioRepository;
         this.peluqueroRepository = peluqueroRepository;
+        this.pagoRepository = pagoRepository;
         this.horario = horario;
         this.eventPublisher = eventPublisher;
         this.clock = clock;
@@ -69,7 +78,26 @@ public class CitaService {
         Page<Cita> citas = esAdmin(actual)
                 ? citaRepository.findAll(pageable)
                 : citaRepository.findByUsuarioIdUsuario(actual.getIdUsuario(), pageable);
-        return citas.map(this::mapearAResponseDTO);
+
+        // Estado de pago de todas las citas de la pagina en una sola consulta (evita N+1).
+        Map<Integer, EstadoPago> estadosPago = estadosPagoDe(citas.map(Cita::getIdCita).getContent());
+        return citas.map(cita -> mapearAResponseDTO(cita, estadosPago.get(cita.getIdCita())));
+    }
+
+    /** Mapa citaId -> estado de pago para las citas dadas (solo las que tienen pago aparecen). */
+    private Map<Integer, EstadoPago> estadosPagoDe(List<Integer> citaIds) {
+        if (citaIds.isEmpty()) {
+            return Map.of();
+        }
+        return pagoRepository.findByCitaIdCitaIn(citaIds).stream()
+                .collect(Collectors.toMap(p -> p.getCita().getIdCita(), Pago::getEstadoPago));
+    }
+
+    /** Estado de pago de una sola cita, o null si no tiene pago. */
+    private EstadoPago estadoPagoDe(Integer citaId) {
+        return pagoRepository.findByCitaIdCita(citaId)
+                .map(Pago::getEstadoPago)
+                .orElse(null);
     }
 
     @Transactional(readOnly = true)
@@ -180,7 +208,8 @@ public class CitaService {
         eventPublisher.publishEvent(new CitaAgendadaEvent(
                 usuarioCompleto.getNombre(), usuarioCompleto.getEmail(),
                 servicioCompleto.getNombre(), guardada.getFechaHora()));
-        return mapearAResponseDTO(guardada);
+        // Cita recien creada: aun no puede tener pago asociado.
+        return mapearAResponseDTO(guardada, null);
     }
 
     @Transactional(readOnly = true)
@@ -188,7 +217,7 @@ public class CitaService {
         Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
         Cita cita = obtenerEntidadPorId(id);
         verificarAcceso(cita, actual);
-        return mapearAResponseDTO(cita);
+        return mapearAResponseDTO(cita, estadoPagoDe(cita.getIdCita()));
     }
 
     @Transactional
@@ -247,7 +276,7 @@ public class CitaService {
                     guardada.getServicio().getNombre(), guardada.getFechaHora()));
         }
 
-        return mapearAResponseDTO(guardada);
+        return mapearAResponseDTO(guardada, estadoPagoDe(guardada.getIdCita()));
     }
 
     @Transactional
@@ -287,7 +316,7 @@ public class CitaService {
         }
     }
 
-    private CitaResponseDTO mapearAResponseDTO(Cita cita) {
+    private CitaResponseDTO mapearAResponseDTO(Cita cita, EstadoPago estadoPago) {
         CitaResponseDTO dto = new CitaResponseDTO();
         dto.setIdCita(cita.getIdCita());
         dto.setFechaHora(cita.getFechaHora());
@@ -295,6 +324,7 @@ public class CitaService {
         dto.setUsuario(UsuarioResponseDTO.desde(cita.getUsuario()));
         dto.setServicio(ServicioResponseDTO.desde(cita.getServicio()));
         dto.setPeluquero(PeluqueroResponseDTO.desde(cita.getPeluquero()));
+        dto.setEstadoPago(estadoPago);
         return dto;
     }
 

@@ -6,12 +6,16 @@ import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
 public interface PagoRepository extends JpaRepository<Pago, Integer> {
     Optional<Pago> findByCitaIdCita(Integer citaId);
     Optional<Pago> findByReferenciaExterna(String referenciaExterna);
+
+    // Pagos de un conjunto de citas en una sola consulta (evita N+1 al listar citas con su estado de pago).
+    List<Pago> findByCitaIdCitaIn(Collection<Integer> citaIds);
 
     @Query(value = """
             SELECT COALESCE(SUM(monto), 0) FROM pagos
