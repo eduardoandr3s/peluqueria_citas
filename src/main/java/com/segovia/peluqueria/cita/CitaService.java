@@ -25,6 +25,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -43,19 +44,22 @@ public class CitaService {
     private final PeluqueroRepository peluqueroRepository;
     private final HorarioProperties horario;
     private final ApplicationEventPublisher eventPublisher;
+    private final Clock clock;
 
     public CitaService(CitaRepository citaRepository,
                        UsuarioRepository usuarioRepository,
                        ServicioRepository servicioRepository,
                        PeluqueroRepository peluqueroRepository,
                        HorarioProperties horario,
-                       ApplicationEventPublisher eventPublisher) {
+                       ApplicationEventPublisher eventPublisher,
+                       Clock clock) {
         this.citaRepository = citaRepository;
         this.usuarioRepository = usuarioRepository;
         this.servicioRepository = servicioRepository;
         this.peluqueroRepository = peluqueroRepository;
         this.horario = horario;
         this.eventPublisher = eventPublisher;
+        this.clock = clock;
     }
 
     @Transactional(readOnly = true)
@@ -70,7 +74,7 @@ public class CitaService {
 
     @Transactional(readOnly = true)
     public List<String> obtenerDisponibilidad(LocalDate fecha, Integer idServicio, Integer peluqueroId) {
-        if (fecha.isBefore(LocalDate.now())) {
+        if (fecha.isBefore(LocalDate.now(clock))) {
             throw new IllegalArgumentException("No se puede consultar disponibilidad en una fecha pasada.");
         }
 
@@ -89,7 +93,7 @@ public class CitaService {
         }
 
         int duracion = servicio.getDuracion();
-        LocalDateTime ahora = LocalDateTime.now();
+        LocalDateTime ahora = LocalDateTime.now(clock);
         List<String> slotsLibres = new ArrayList<>();
 
         LocalTime inicio = horario.getApertura();
@@ -295,7 +299,7 @@ public class CitaService {
     }
 
     private void validarFechaFutura(LocalDateTime fechaHora) {
-        if (fechaHora.isBefore(LocalDateTime.now())) {
+        if (fechaHora.isBefore(LocalDateTime.now(clock))) {
             throw new IllegalArgumentException("No se puede agendar una cita en el pasado.");
         }
     }

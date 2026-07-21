@@ -45,7 +45,7 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 * **Validación de conflictos de horario:** se rechazan citas que se solapen, usando la duración del servicio para calcular cada rango.
 * **Validación de horario laboral:** las citas solo se pueden agendar de lunes a sábado de 9:00 a 20:00, y nunca en el pasado. El horario es **configurable** vía properties (`peluqueria.horario.apertura` / `peluqueria.horario.cierre`).
 * **Estadísticas de negocio:** `GET /api/estadisticas` (solo ADMIN) devuelve citas por estado, ingresos desglosados por método de pago (excluyendo reembolsos, calculados por fecha de pago), servicios más demandados y clientes nuevos. Por defecto usa los **últimos 30 días** si no se indica rango.
-* **Notificaciones por correo:** emails dirigidos por eventos (registro, cita agendada, modificada, anulada, pago confirmado, cambios de contraseña) desacoplados de la lógica de negocio mediante eventos de Spring (`@TransactionalEventListener(AFTER_COMMIT)`), más un **recordatorio de cita 24h antes** enviado por un scheduler (corre cada 15 minutos, `Clock` inyectable para testabilidad, el flag `recordatorio_enviado` garantiza un único envío).
+* **Notificaciones por correo:** emails dirigidos por eventos (registro, cita agendada, modificada, anulada, pago confirmado, cambios de contraseña) desacoplados de la lógica de negocio mediante eventos de Spring (`@TransactionalEventListener(AFTER_COMMIT)`), más un **recordatorio de cita 24h antes** enviado por un scheduler (corre cada hora, `Clock` inyectable para testabilidad, el flag `recordatorio_enviado` garantiza un único envío).
 * **Control de propiedad (ownership):** un `USER` solo puede ver, modificar o eliminar sus propias citas y sus propios datos; un `ADMIN` puede acceder a todo. Los accesos no autorizados devuelven `403 Forbidden`.
 * **Patrón DTO:** cada entidad tiene DTOs separados para creación, actualización parcial y respuesta. Nunca se expone información sensible.
 * **Paginación y ordenación:** los listados de citas y usuarios están paginados (`page`, `size`, `sort`) y devuelven un `Page` de Spring Data.
@@ -252,6 +252,7 @@ La API queda disponible en `http://localhost:8080` (Swagger UI en `/swagger-ui.h
 
 * **API:** Render (Docker, `Dockerfile` multi-stage en este repo). Cada push a `main` redespliega.
 * **Base de datos:** Supabase (PostgreSQL gestionado, conectado a través de su session pooler IPv4).
+* **Email:** los correos transaccionales salen por el relay SMTP de un proveedor en el puerto **2525** (el tier Free de Render bloquea los puertos SMTP salientes 25/465/587).
 * **Frontends:** Firebase Hosting (ver abajo).
 * **CI:** GitHub Actions ejecuta la suite completa — tests unitarios + integración con Testcontainers — en cada push y pull request.
 

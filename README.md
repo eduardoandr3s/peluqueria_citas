@@ -45,7 +45,7 @@ Backend for a complete appointment booking and management system for a hair salo
 * **Schedule conflict validation:** overlapping appointments are rejected, using the service duration to compute each time range.
 * **Business-hours validation:** appointments can only be booked Monday to Saturday, 9:00-20:00, never in the past. Hours are **configurable** via properties (`peluqueria.horario.apertura` / `peluqueria.horario.cierre`).
 * **Business statistics:** `GET /api/estadisticas` (ADMIN only) returns appointments by status, revenue broken down by payment method (refunds excluded, computed by payment date), top services and new customers. Defaults to the **last 30 days** when no date range is given.
-* **Email notifications:** event-driven emails (registration, booking, modification, cancellation, payment confirmation, password changes) decoupled from business logic via Spring application events (`@TransactionalEventListener(AFTER_COMMIT)`), plus a **24-hour appointment reminder** sent by a scheduler (runs every 15 minutes, injectable `Clock` for testability, `recordatorio_enviado` flag guarantees a single send).
+* **Email notifications:** event-driven emails (registration, booking, modification, cancellation, payment confirmation, password changes) decoupled from business logic via Spring application events (`@TransactionalEventListener(AFTER_COMMIT)`), plus a **24-hour appointment reminder** sent by a scheduler (runs hourly, injectable `Clock` for testability, `recordatorio_enviado` flag guarantees a single send).
 * **Ownership control:** a `USER` can only see, modify or delete their own appointments and data; an `ADMIN` can access everything. Unauthorized access returns `403 Forbidden`.
 * **DTO pattern:** every entity has separate DTOs for creation, partial update and response. Sensitive data is never exposed.
 * **Pagination and sorting:** appointment and user listings are paginated (`page`, `size`, `sort`) and return a Spring Data `Page`.
@@ -252,6 +252,7 @@ The API is available at `http://localhost:8080` (Swagger UI at `/swagger-ui.html
 
 * **API:** Render (Docker, multi-stage `Dockerfile` in this repo). Every push to `main` triggers a redeploy.
 * **Database:** Supabase (managed PostgreSQL, connected through its IPv4 session pooler).
+* **Email:** transactional emails are sent through a provider's SMTP relay on port **2525** (Render's Free tier blocks outbound SMTP ports 25/465/587).
 * **Frontends:** Firebase Hosting (see below).
 * **CI:** GitHub Actions runs the full suite — unit + Testcontainers integration tests — on every push and pull request.
 

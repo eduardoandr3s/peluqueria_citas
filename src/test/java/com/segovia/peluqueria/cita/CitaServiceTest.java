@@ -26,9 +26,12 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.DayOfWeek;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import java.util.Optional;
@@ -57,7 +60,8 @@ class CitaServiceTest {
         peluqueroRepository = mock(PeluqueroRepository.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
         // HorarioProperties con sus valores por defecto: 09:00 - 20:00.
-        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository, peluqueroRepository, new HorarioProperties(), eventPublisher);
+        // Clock del sistema para que "ahora" coincida con los LocalDateTime.now() de los helpers.
+        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository, peluqueroRepository, new HorarioProperties(), eventPublisher, Clock.systemDefaultZone());
 
         // Por defecto, el usuario autenticado es un ADMIN (acceso total).
         Usuario admin = new Usuario();
@@ -191,6 +195,27 @@ class CitaServiceTest {
 
         when(usuarioRepository.findById(1)).thenReturn(Optional.of(usuario));
         when(servicioRepository.findById(1)).thenReturn(Optional.of(servicio));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> citaService.agendarCita(request, EMAIL_ADMIN));
+        assertTrue(ex.getMessage().contains("pasado"));
+    }
+
+    @Test
+    void agendarCita_horaYaPasadaEnZonaDelNegocio_lanzaExcepcion() {
+        // Lunes 2026-07-20, 15:37 en Europe/Madrid (que son las 13:37 UTC en verano, CEST).
+        // Reservar a las 14:00 de ese dia debe rechazarse porque ya paso en la hora del negocio,
+        // aunque 14:00 sea "posterior" a las 13:37 UTC. Guarda contra el bug de zona horaria
+        // (host en UTC dejaba agendar en el pasado local).
+        Clock relojMadrid = Clock.fixed(Instant.parse("2026-07-20T13:37:00Z"), ZoneId.of("Europe/Madrid"));
+        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository,
+                peluqueroRepository, new HorarioProperties(), eventPublisher, relojMadrid);
+
+        CitaRequestDTO request = crearRequestValido();
+        request.setFechaHora(LocalDateTime.of(2026, 7, 20, 14, 0));
+
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(crearUsuarioActivo()));
+        when(servicioRepository.findById(1)).thenReturn(Optional.of(crearServicioActivo()));
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> citaService.agendarCita(request, EMAIL_ADMIN));
