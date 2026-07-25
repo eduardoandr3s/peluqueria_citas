@@ -195,6 +195,29 @@ DELETE http://localhost:8080/api/dias-bloqueados/1
 Authorization: Bearer {{token}}
 
 ##############################################
+# Pagos
+##############################################
+
+### Listar pagos paginado — solo ADMIN
+### Sin filtros devuelve los ultimos pagos registrados (orden por fecha de creacion desc)
+GET http://localhost:8080/api/pagos?page=0&size=20
+Authorization: Bearer {{token}}
+
+### Pagos de un rango de fechas (ambos extremos incluidos) — solo ADMIN
+### El rango se aplica sobre la fecha de cobro y, si el pago aun no esta cobrado, la de creacion
+GET http://localhost:8080/api/pagos?desde=2026-07-01&hasta=2026-07-31
+Authorization: Bearer {{token}}
+
+### Desglose de ingresos: los pagos cobrados con tarjeta de un periodo — solo ADMIN
+### Son exactamente los que suman los ingresos de TARJETA en /api/estadisticas del mismo rango
+GET http://localhost:8080/api/pagos?desde=2026-07-01&hasta=2026-07-31&estado=PAGADO&metodo=TARJETA
+Authorization: Bearer {{token}}
+
+### Pago de una cita concreta (el cliente solo puede ver los suyos)
+GET http://localhost:8080/api/pagos/cita/1
+Authorization: Bearer {{token}}
+
+##############################################
 # Recuperacion de contrasena (publico, con rate limiting por IP)
 ##############################################
 

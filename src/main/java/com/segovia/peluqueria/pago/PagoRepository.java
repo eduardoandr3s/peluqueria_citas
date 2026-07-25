@@ -1,6 +1,7 @@
 package com.segovia.peluqueria.pago;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -10,7 +11,12 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
-public interface PagoRepository extends JpaRepository<Pago, Integer> {
+/**
+ * El listado de pagos combina filtros opcionales (rango, estado, metodo), asi que se resuelve
+ * con {@link JpaSpecificationExecutor} en vez de con una consulta por combinacion: ver
+ * {@code PagoService.listarPagos}.
+ */
+public interface PagoRepository extends JpaRepository<Pago, Integer>, JpaSpecificationExecutor<Pago> {
     Optional<Pago> findByCitaIdCita(Integer citaId);
     Optional<Pago> findByReferenciaExterna(String referenciaExterna);
 

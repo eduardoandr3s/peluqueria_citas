@@ -89,6 +89,9 @@ public class SecurityConfig {
 
                         .requestMatchers("/api/pagos/webhook").permitAll()
                         .requestMatchers("/api/pagos/crear-intent").authenticated()
+                        // El listado completo de pagos es del panel; el detalle por cita lo consulta
+                        // tambien el cliente (el servicio ya comprueba que la cita sea suya).
+                        .requestMatchers(HttpMethod.GET, "/api/pagos").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/pagos/**").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/pagos/manual").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/pagos/*/reembolsar").hasRole("ADMIN")

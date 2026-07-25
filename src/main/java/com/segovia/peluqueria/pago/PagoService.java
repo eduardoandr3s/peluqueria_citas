@@ -12,15 +12,22 @@ import com.segovia.peluqueria.pago.dto.PaymentIntentResponseDTO;
 import com.segovia.peluqueria.usuario.Rol;
 import com.segovia.peluqueria.usuario.Usuario;
 import com.segovia.peluqueria.usuario.UsuarioRepository;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -217,6 +224,47 @@ public class PagoService {
         Pago pago = pagoRepository.findByCitaIdCita(citaId)
                 .orElseThrow(() -> new ResourceNotFoundException("No hay un pago registrado para esta cita."));
         return PagoResponseDTO.desde(pago);
+    }
+
+    /**
+     * Listado de pagos para el panel de administracion, con filtros opcionales y paginado.
+     *
+     * <p>El rango filtra por la fecha en que el pago quedo cobrado ({@code fechaPago}) y, para los
+     * que aun no lo estan, por la de creacion. De este modo un listado con
+     * {@code estado = PAGADO} devuelve exactamente los pagos que suman los ingresos del mismo
+     * periodo en las estadisticas, que se calculan sobre {@code fechaPago}.
+     *
+     * @param desde  inicio del rango, inclusive (opcional)
+     * @param hasta  fin del rango, EXCLUSIVE (opcional)
+     * @param estado filtra por estado del pago (opcional)
+     * @param metodo filtra por metodo de pago (opcional)
+     */
+    @Transactional(readOnly = true)
+    public Page<PagoResponseDTO> listarPagos(LocalDateTime desde, LocalDateTime hasta,
+                                             EstadoPago estado, MetodoPago metodo, Pageable pageable) {
+        if (desde != null && hasta != null && hasta.isBefore(desde)) {
+            throw new IllegalArgumentException("La fecha 'hasta' no puede ser anterior a 'desde'.");
+        }
+
+        Specification<Pago> filtro = (root, query, cb) -> {
+            Expression<LocalDateTime> fecha = cb.coalesce(root.get("fechaPago"), root.get("fechaCreacion"));
+            List<Predicate> condiciones = new ArrayList<>();
+            if (desde != null) {
+                condiciones.add(cb.greaterThanOrEqualTo(fecha, desde));
+            }
+            if (hasta != null) {
+                condiciones.add(cb.lessThan(fecha, hasta));
+            }
+            if (estado != null) {
+                condiciones.add(cb.equal(root.get("estadoPago"), estado));
+            }
+            if (metodo != null) {
+                condiciones.add(cb.equal(root.get("metodoPago"), metodo));
+            }
+            return cb.and(condiciones.toArray(new Predicate[0]));
+        };
+
+        return pagoRepository.findAll(filtro, pageable).map(PagoResponseDTO::desde);
     }
 
     @Transactional

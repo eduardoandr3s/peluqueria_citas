@@ -16,11 +16,18 @@ import com.segovia.peluqueria.usuario.UsuarioRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -446,5 +453,38 @@ class PagoServiceTest {
 
         assertThrows(ResourceNotFoundException.class,
                 () -> pagoService.reembolsar(1, EMAIL_ADMIN));
+    }
+
+    // ---------- listarPagos ----------
+    // El filtrado real (rango, estado, metodo) se ejercita contra Postgres en
+    // PagosIntegrationTest; aqui solo la validacion del rango y el mapeo a DTO.
+
+    @Test
+    void listarPagos_devuelveLosPagosMapeadosADTO() {
+        Cita cita = crearCitaPendiente();
+        Pago pago = crearPagoPendiente(cita);
+        pago.setEstadoPago(EstadoPago.PAGADO);
+        when(pagoRepository.findAll(ArgumentMatchers.<Specification<Pago>>any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(pago)));
+
+        Page<PagoResponseDTO> resultado = pagoService.listarPagos(
+                null, null, null, null, PageRequest.of(0, 20));
+
+        assertEquals(1, resultado.getTotalElements());
+        PagoResponseDTO dto = resultado.getContent().get(0);
+        assertEquals(10, dto.getIdPago());
+        assertEquals(1, dto.getCitaId());
+        assertEquals(EstadoPago.PAGADO, dto.getEstadoPago());
+        assertEquals(new BigDecimal("15.00"), dto.getMonto());
+    }
+
+    @Test
+    void listarPagos_rangoInvertido_lanzaError() {
+        LocalDateTime desde = LocalDateTime.of(2026, 6, 30, 0, 0);
+        LocalDateTime hasta = LocalDateTime.of(2026, 6, 1, 0, 0);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> pagoService.listarPagos(desde, hasta, null, null, PageRequest.of(0, 20)));
+        verify(pagoRepository, never()).findAll(ArgumentMatchers.<Specification<Pago>>any(), any(Pageable.class));
     }
 }
