@@ -1,5 +1,9 @@
 package com.segovia.peluqueria.cita;
 
+import com.segovia.peluqueria.calendario.CalendarioService;
+import com.segovia.peluqueria.calendario.DiaBloqueado;
+import com.segovia.peluqueria.calendario.DiaBloqueadoRepository;
+import com.segovia.peluqueria.calendario.dto.DiaCerradoDTO;
 import com.segovia.peluqueria.cita.dto.CitaRequestDTO;
 import com.segovia.peluqueria.cita.dto.CitaResponseDTO;
 import com.segovia.peluqueria.cita.dto.CitaUpdateDTO;
@@ -51,6 +55,7 @@ class CitaServiceTest {
     private ServicioRepository servicioRepository;
     private PeluqueroRepository peluqueroRepository;
     private PagoRepository pagoRepository;
+    private DiaBloqueadoRepository diaBloqueadoRepository;
     private ApplicationEventPublisher eventPublisher;
     private CitaService citaService;
 
@@ -63,13 +68,23 @@ class CitaServiceTest {
         servicioRepository = mock(ServicioRepository.class);
         peluqueroRepository = mock(PeluqueroRepository.class);
         pagoRepository = mock(PagoRepository.class);
+        diaBloqueadoRepository = mock(DiaBloqueadoRepository.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
         // Por defecto no hay pagos: las citas se mapean con estadoPago null.
         when(pagoRepository.findByCitaIdCitaIn(any())).thenReturn(List.of());
         when(pagoRepository.findByCitaIdCita(anyInt())).thenReturn(Optional.empty());
-        // HorarioProperties con sus valores por defecto: 09:00 - 20:00.
+        // Por defecto no hay ningun dia bloqueado: solo cierra el domingo (regla del horario).
+        when(diaBloqueadoRepository.existsByFecha(any())).thenReturn(false);
+        when(diaBloqueadoRepository.findByFecha(any())).thenReturn(Optional.empty());
+        when(diaBloqueadoRepository.findByFechaBetweenOrderByFecha(any(), any())).thenReturn(List.of());
+        // HorarioProperties con sus valores por defecto: 09:00 - 20:00, domingo cerrado.
         // Clock del sistema para que "ahora" coincida con los LocalDateTime.now() de los helpers.
-        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository, peluqueroRepository, pagoRepository, new HorarioProperties(), eventPublisher, Clock.systemDefaultZone());
+        HorarioProperties horario = new HorarioProperties();
+        Clock clock = Clock.systemDefaultZone();
+        // CalendarioService real (no mock) sobre el repo mockeado: la regla del dia de la
+        // semana se calcula de verdad y solo hay que stubbear los bloqueos puntuales.
+        CalendarioService calendario = new CalendarioService(diaBloqueadoRepository, citaRepository, horario, clock);
+        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository, peluqueroRepository, pagoRepository, horario, calendario, eventPublisher, clock);
 
         // Por defecto, el usuario autenticado es un ADMIN (acceso total).
         Usuario admin = new Usuario();
@@ -216,8 +231,10 @@ class CitaServiceTest {
         // aunque 14:00 sea "posterior" a las 13:37 UTC. Guarda contra el bug de zona horaria
         // (host en UTC dejaba agendar en el pasado local).
         Clock relojMadrid = Clock.fixed(Instant.parse("2026-07-20T13:37:00Z"), ZoneId.of("Europe/Madrid"));
+        HorarioProperties horario = new HorarioProperties();
+        CalendarioService calendario = new CalendarioService(diaBloqueadoRepository, citaRepository, horario, relojMadrid);
         citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository,
-                peluqueroRepository, pagoRepository, new HorarioProperties(), eventPublisher, relojMadrid);
+                peluqueroRepository, pagoRepository, horario, calendario, eventPublisher, relojMadrid);
 
         CitaRequestDTO request = crearRequestValido();
         request.setFechaHora(LocalDateTime.of(2026, 7, 20, 14, 0));
@@ -245,7 +262,104 @@ class CitaServiceTest {
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> citaService.agendarCita(request, EMAIL_ADMIN));
-        assertTrue(ex.getMessage().contains("domingos"));
+        assertTrue(ex.getMessage().contains("domingo"));
+    }
+
+    @Test
+    void agendarCita_diaBloqueado_lanzaExcepcion() {
+        CitaRequestDTO request = crearRequestValido();
+        LocalDate lunes = request.getFechaHora().toLocalDate();
+
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(crearUsuarioActivo()));
+        when(servicioRepository.findById(1)).thenReturn(Optional.of(crearServicioActivo()));
+        bloquear(lunes, "Reyes");
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> citaService.agendarCita(request, EMAIL_ADMIN));
+        assertTrue(ex.getMessage().contains("Reyes"));
+        verify(citaRepository, never()).save(any(Cita.class));
+    }
+
+    @Test
+    void actualizarCita_reprogramarADiaBloqueado_lanzaExcepcion() {
+        Cita citaExistente = new Cita();
+        citaExistente.setIdCita(1);
+        citaExistente.setEstado(EstadoCita.PENDIENTE);
+        citaExistente.setFechaHora(proximoLunesALas(10, 0));
+        citaExistente.setServicio(crearServicioActivo());
+        citaExistente.setUsuario(crearUsuarioActivo());
+
+        LocalDateTime nuevaFecha = proximoLunesALas(11, 0).plusDays(1);
+        CitaUpdateDTO request = new CitaUpdateDTO();
+        request.setFechaHora(nuevaFecha);
+
+        when(citaRepository.findById(1)).thenReturn(Optional.of(citaExistente));
+        bloquear(nuevaFecha.toLocalDate(), "Puente");
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> citaService.actualizarCita(1, request, EMAIL_ADMIN));
+        assertTrue(ex.getMessage().contains("Puente"));
+        verify(citaRepository, never()).save(any(Cita.class));
+    }
+
+    @Test
+    void disponibilidad_diaBloqueado_devuelveVacio() {
+        LocalDate lunes = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+
+        when(servicioRepository.findById(1)).thenReturn(Optional.of(crearServicioActivo()));
+        bloquear(lunes, "Festivo local");
+
+        assertTrue(citaService.obtenerDisponibilidad(lunes, 1, null).isEmpty());
+        // Si el dia esta cerrado no tiene sentido ir a buscar conflictos slot a slot.
+        verify(citaRepository, never()).contarConflictos(any(), any());
+    }
+
+    @Test
+    void diasCerrados_mezclaDomingosYBloqueos() {
+        LocalDate lunes = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+        LocalDate domingo = lunes.plusDays(6);
+        LocalDate martes = lunes.plusDays(1);
+
+        DiaBloqueado bloqueo = new DiaBloqueado();
+        bloqueo.setIdDiaBloqueado(1);
+        bloqueo.setFecha(martes);
+        bloqueo.setMotivo("Reyes");
+        when(diaBloqueadoRepository.findByFechaBetweenOrderByFecha(lunes, domingo)).thenReturn(List.of(bloqueo));
+
+        List<DiaCerradoDTO> cerrados = citaService.obtenerDiasCerrados(lunes, domingo);
+
+        assertEquals(2, cerrados.size());
+        assertEquals(martes, cerrados.get(0).getFecha());
+        assertEquals("Reyes", cerrados.get(0).getMotivo());
+        assertEquals(domingo, cerrados.get(1).getFecha());
+        assertTrue(cerrados.get(1).getMotivo().contains("domingo"));
+    }
+
+    @Test
+    void diasCerrados_rangoInvertido_lanzaExcepcion() {
+        LocalDate hoy = LocalDate.now();
+
+        assertThrows(IllegalArgumentException.class,
+                () -> citaService.obtenerDiasCerrados(hoy.plusDays(5), hoy));
+    }
+
+    @Test
+    void diasCerrados_rangoDemasiadoAmplio_lanzaExcepcion() {
+        LocalDate hoy = LocalDate.now();
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> citaService.obtenerDiasCerrados(hoy, hoy.plusYears(2)));
+        assertTrue(ex.getMessage().contains("meses"));
+    }
+
+    /** Marca una fecha como bloqueada en el repositorio mockeado. */
+    private void bloquear(LocalDate fecha, String motivo) {
+        DiaBloqueado dia = new DiaBloqueado();
+        dia.setIdDiaBloqueado(1);
+        dia.setFecha(fecha);
+        dia.setMotivo(motivo);
+        when(diaBloqueadoRepository.existsByFecha(fecha)).thenReturn(true);
+        when(diaBloqueadoRepository.findByFecha(fecha)).thenReturn(Optional.of(dia));
     }
 
     @Test

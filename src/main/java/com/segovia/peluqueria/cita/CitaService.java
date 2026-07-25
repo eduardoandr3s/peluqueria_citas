@@ -1,5 +1,7 @@
 package com.segovia.peluqueria.cita;
 
+import com.segovia.peluqueria.calendario.CalendarioService;
+import com.segovia.peluqueria.calendario.dto.DiaCerradoDTO;
 import com.segovia.peluqueria.cita.dto.CitaRequestDTO;
 import com.segovia.peluqueria.cita.dto.CitaResponseDTO;
 import com.segovia.peluqueria.cita.dto.CitaUpdateDTO;
@@ -29,7 +31,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -43,6 +44,9 @@ import java.util.stream.Collectors;
 public class CitaService {
 
     private static final int PASO_SLOT_MINUTOS = 30;
+    /** Meses que cubre /dias-cerrados si no se indica 'hasta', y tope del rango pedido. */
+    private static final int MESES_RANGO_CIERRES = 3;
+    private static final int MAX_MESES_RANGO_CIERRES = 12;
 
     private final CitaRepository citaRepository;
     private final UsuarioRepository usuarioRepository;
@@ -50,6 +54,7 @@ public class CitaService {
     private final PeluqueroRepository peluqueroRepository;
     private final PagoRepository pagoRepository;
     private final HorarioProperties horario;
+    private final CalendarioService calendario;
     private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
 
@@ -59,6 +64,7 @@ public class CitaService {
                        PeluqueroRepository peluqueroRepository,
                        PagoRepository pagoRepository,
                        HorarioProperties horario,
+                       CalendarioService calendario,
                        ApplicationEventPublisher eventPublisher,
                        Clock clock) {
         this.citaRepository = citaRepository;
@@ -67,6 +73,7 @@ public class CitaService {
         this.peluqueroRepository = peluqueroRepository;
         this.pagoRepository = pagoRepository;
         this.horario = horario;
+        this.calendario = calendario;
         this.eventPublisher = eventPublisher;
         this.clock = clock;
     }
@@ -115,8 +122,8 @@ public class CitaService {
         // Si se filtra por peluquero, debe existir y estar activo.
         validarPeluqueroActivo(peluqueroId);
 
-        // Domingo cerrado: no hay slots.
-        if (fecha.getDayOfWeek() == DayOfWeek.SUNDAY) {
+        // Dia cerrado (domingo o festivo/cierre puntual): no hay slots.
+        if (calendario.esCerrado(fecha)) {
             return List.of();
         }
 
@@ -140,6 +147,21 @@ public class CitaService {
         }
 
         return slotsLibres;
+    }
+
+    /**
+     * Días cerrados del rango (domingos + festivos/cierres puntuales), para que el
+     * cliente pueda deshabilitarlos en el calendario en vez de dejar elegir un día
+     * que luego no tendría ninguna hora libre.
+     */
+    @Transactional(readOnly = true)
+    public List<DiaCerradoDTO> obtenerDiasCerrados(LocalDate desde, LocalDate hasta) {
+        LocalDate inicio = desde != null ? desde : LocalDate.now(clock);
+        LocalDate fin = hasta != null ? hasta : inicio.plusMonths(MESES_RANGO_CIERRES);
+        if (inicio.plusMonths(MAX_MESES_RANGO_CIERRES).isBefore(fin)) {
+            throw new IllegalArgumentException("El rango no puede superar los " + MAX_MESES_RANGO_CIERRES + " meses.");
+        }
+        return calendario.diasCerrados(inicio, fin);
     }
 
     /**
@@ -337,10 +359,10 @@ public class CitaService {
     private void validarHorarioLaboral(LocalDateTime inicio, Integer duracionMinutos) {
         LocalTime horaInicio = inicio.toLocalTime();
         LocalTime horaFin = horaInicio.plusMinutes(duracionMinutos);
-        DayOfWeek dia = inicio.getDayOfWeek();
 
-        if (dia == DayOfWeek.SUNDAY) {
-            throw new IllegalArgumentException("No se atiende los domingos.");
+        String motivoCierre = calendario.motivoCierre(inicio.toLocalDate());
+        if (motivoCierre != null) {
+            throw new IllegalArgumentException("La peluqueria no abre el " + inicio.toLocalDate() + ": " + motivoCierre + ".");
         }
 
         if (horaInicio.isBefore(horario.getApertura())) {

@@ -167,6 +167,34 @@ PATCH http://localhost:8080/api/usuarios/4/activar
 Authorization: Bearer {{token}}
 
 ##############################################
+# Dias cerrados (festivos y cierres puntuales)
+##############################################
+
+### Dias cerrados de un rango: domingos + fechas bloqueadas, con su motivo
+### (sin parametros devuelve los 3 proximos meses)
+GET http://localhost:8080/api/citas/dias-cerrados?desde=2026-08-01&hasta=2026-08-31
+Authorization: Bearer {{token}}
+
+### Listar los dias bloqueados de hoy en adelante
+GET http://localhost:8080/api/dias-bloqueados
+Authorization: Bearer {{token}}
+
+### Bloquear un dia — solo ADMIN
+### 409 si ya estaba bloqueado o si ese dia tiene citas sin anular/reprogramar
+POST http://localhost:8080/api/dias-bloqueados
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "fecha": "2027-01-06",
+  "motivo": "Reyes"
+}
+
+### Desbloquear un dia — solo ADMIN
+DELETE http://localhost:8080/api/dias-bloqueados/1
+Authorization: Bearer {{token}}
+
+##############################################
 # Recuperacion de contrasena (publico, con rate limiting por IP)
 ##############################################
 

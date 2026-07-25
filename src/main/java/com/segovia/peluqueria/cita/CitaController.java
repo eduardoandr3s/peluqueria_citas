@@ -1,5 +1,6 @@
 package com.segovia.peluqueria.cita;
 
+import com.segovia.peluqueria.calendario.dto.DiaCerradoDTO;
 import com.segovia.peluqueria.cita.dto.CitaRequestDTO;
 import com.segovia.peluqueria.cita.dto.CitaResponseDTO;
 import com.segovia.peluqueria.cita.dto.CitaUpdateDTO;
@@ -39,6 +40,17 @@ public class CitaController {
             @RequestParam Integer idServicio,
             @RequestParam(required = false) Integer peluqueroId) {
         return citaService.obtenerDisponibilidad(fecha, idServicio, peluqueroId);
+    }
+
+    /**
+     * Dias en los que no se puede agendar. Sin parametros devuelve los 3 proximos meses
+     * desde hoy.
+     */
+    @GetMapping("/dias-cerrados")
+    public List<DiaCerradoDTO> diasCerrados(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta) {
+        return citaService.obtenerDiasCerrados(desde, hasta);
     }
 
     @PostMapping

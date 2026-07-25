@@ -87,4 +87,18 @@ public interface CitaRepository extends JpaRepository<Cita, Integer> {
 
     List<Cita> findByEstadoAndRecordatorioEnviadoFalseAndFechaHoraBetween(
             EstadoCita estado, LocalDateTime inicio, LocalDateTime fin);
+
+    /**
+     * Citas vivas (cualquier estado salvo el excluido) dentro de un intervalo. Se usa
+     * para no bloquear un dia que todavia tiene citas sin resolver.
+     */
+    @Query("""
+            SELECT COUNT(c) FROM Cita c
+            WHERE c.estado <> :estadoExcluido
+            AND c.fechaHora >= :desde
+            AND c.fechaHora < :hasta
+            """)
+    long contarActivasEnElDia(@Param("estadoExcluido") EstadoCita estadoExcluido,
+                              @Param("desde") LocalDateTime desde,
+                              @Param("hasta") LocalDateTime hasta);
 }

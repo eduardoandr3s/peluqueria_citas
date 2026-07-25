@@ -21,7 +21,7 @@ Backend for a complete appointment booking and management system for a hair salo
 * **Java 21 (Temurin LTS)**
 * **Spring Boot 4.0.3** (main framework)
 * **PostgreSQL** (relational database)
-* **Flyway** (database migrations, V1-V7)
+* **Flyway** (database migrations, V1-V8)
 * **Spring Data JPA / Hibernate** (ORM)
 * **Spring Security + JWT** (stateless authentication and role-based authorization)
 * **BCrypt** (one-way password hashing)
@@ -35,7 +35,7 @@ Backend for a complete appointment booking and management system for a hair salo
 
 ## Features
 
-* **Domain-based architecture:** code is organized by business module (`usuario/`, `cita/`, `servicio/`, `pago/`, `peluquero/`, `estadistica/`, `notificacion/`, `auth/`, `security/`). Each module contains its entity, controller, service, repository and DTOs.
+* **Domain-based architecture:** code is organized by business module (`usuario/`, `cita/`, `servicio/`, `pago/`, `peluquero/`, `calendario/`, `estadistica/`, `notificacion/`, `auth/`, `security/`). Each module contains its entity, controller, service, repository and DTOs.
 * **Constructor injection:** dependencies are injected through constructors with `final` fields (no `@Autowired`), following Spring best practices for immutability and testability.
 * **JWT authentication with roles:** login/registration with JWT access tokens (30 min) plus **rotating refresh tokens** (30 days). Two roles: `USER` (customers) and `ADMIN`. On every request the API also checks that the account is still active and that the token's `tokenVersion` matches the database: changing the password or the role **revokes** previously issued tokens (role and active status are always read from the database, never from the token).
 * **Password reset:** one-time tokens sent by email, with expiration and **per-IP rate limiting** (Bucket4j). The endpoint always returns 200 to prevent user enumeration.
@@ -43,7 +43,8 @@ Backend for a complete appointment booking and management system for a hair salo
 * **Multi-barber support:** barber CRUD and an **optional barber** per appointment. Schedule conflicts are checked per barber ("unassigned" blocks the whole slot), and availability can be queried for a specific barber.
 * **Availability endpoint:** `/api/citas/disponibilidad` computes free 30-minute slots for a service on a date — optionally for a specific barber — taking existing appointments and business hours into account.
 * **Schedule conflict validation:** overlapping appointments are rejected, using the service duration to compute each time range.
-* **Business-hours validation:** appointments can only be booked Monday to Saturday, 9:00-20:00, never in the past. Hours are **configurable** via properties (`peluqueria.horario.apertura` / `peluqueria.horario.cierre`).
+* **Business-hours validation:** appointments can only be booked Monday to Saturday, 9:00-20:00, never in the past. Hours and closed weekdays are **configurable** via properties (`peluqueria.horario.apertura` / `peluqueria.horario.cierre` / `peluqueria.horario.dias-cerrados`).
+* **Closed days (holidays and one-off closures):** an ADMIN can block a specific date with an optional reason (`/api/dias-bloqueados`). A blocked day returns no slots and rejects bookings and reschedules with the reason in the message. `GET /api/citas/dias-cerrados` returns every closed day in a range — the fixed closed weekdays (Sunday) and the blocked dates, unified — so clients can render them as **unselectable** instead of letting the customer pick a day with no available times. Blocking a day that still has live appointments is rejected (409) rather than silently cancelling them.
 * **Business statistics:** `GET /api/estadisticas` (ADMIN only) returns appointments by status, revenue broken down by payment method (refunds excluded, computed by payment date), top services and new customers. Defaults to the **last 30 days** when no date range is given.
 * **Email notifications:** event-driven emails (registration, booking, modification, cancellation, payment confirmation, password changes) decoupled from business logic via Spring application events (`@TransactionalEventListener(AFTER_COMMIT)`), plus a **24-hour appointment reminder** sent by a scheduler (runs hourly, injectable `Clock` for testability, `recordatorio_enviado` flag guarantees a single send).
 * **Ownership control:** a `USER` can only see, modify or delete their own appointments and data; an `ADMIN` can access everything. Unauthorized access returns `403 Forbidden`.
@@ -54,7 +55,7 @@ Backend for a complete appointment booking and management system for a hair salo
 * **Global exception handling:** `@RestControllerAdvice` with specific handlers for validation (400), not found (404), access denied (403), conflicts (409) and a generic handler (500) that never leaks internal details. Includes SLF4J logging.
 * **OpenAPI / Swagger UI documentation:** auto-generated with springdoc-openapi, available at `/swagger-ui.html` and `/v3/api-docs`.
 * **Configuration profiles:** separate `dev` and `prod` environments. Schema is managed with **Flyway migrations** (`src/main/resources/db/migration/`).
-* **Test suite (167 tests):** 157 unit tests covering the business logic without Spring context or database, plus 10 integration tests with **Testcontainers** (real PostgreSQL in Docker) covering authentication, ownership rules, statistics and the full Stripe webhook flow with real signature verification.
+* **Test suite (196 tests):** 186 unit tests covering the business logic without Spring context or database, plus 10 integration tests with **Testcontainers** (real PostgreSQL in Docker) covering authentication, ownership rules, statistics and the full Stripe webhook flow with real signature verification.
 
 ## Project Structure
 
@@ -77,15 +78,16 @@ Each business module follows the same layout: JPA entity, controller, service, r
 
 ## Tests
 
-**167 tests** run in CI on every push (GitHub Actions).
+**196 tests** run in CI on every push (GitHub Actions).
 
-### Unit tests (157)
+### Unit tests (186)
 
 They cover all business logic without Spring context or database (a few seconds):
 
 | Class | Tests | Coverage |
 |-------|-------|----------|
-| CitaServiceTest | 40 | Booking, business hours, conflicts, CRUD, ownership, availability, pagination, barber validation, auto-confirmation on payment |
+| CitaServiceTest | 48 | Booking, business hours, closed days, conflicts, CRUD, ownership, availability, pagination, barber validation, auto-confirmation on payment |
+| CalendarioServiceTest | 17 | Closed weekdays, blocking/unblocking dates, past dates, duplicates, days with live appointments, closed-day ranges |
 | UsuarioServiceTest | 26 | CRUD, duplicate email, hashing, soft delete, ownership, reactivation, pagination, search |
 | PagoServiceTest | 23 | PaymentIntents, webhooks, manual payment, refunds, polling, concurrency |
 | JwtServiceTest | 9 | Token generation/extraction/validation, signatures, tokenVersion |
@@ -98,6 +100,7 @@ They cover all business logic without Spring context or database (a few seconds)
 | RecordatorioCitaSchedulerTest | 5 | 24h reminder: sends once, skips cancelled/already-notified, injectable Clock |
 | CustomUserDetailsServiceTest | 4 | User loading, roles, status |
 | EstadisticasServiceTest | 3 | Aggregations, revenue breakdown, refund exclusion |
+| HorarioPropertiesTest | 4 | Business-hours property binding, including the closed-weekdays list |
 
 ```bash
 # Unit tests only (no Docker needed)
@@ -156,7 +159,8 @@ They boot the full application against a **real PostgreSQL** started in Docker (
 | Method | Endpoint | Access | Description |
 |--------|----------|--------|-------------|
 | GET | `/api/citas` | USER/ADMIN | List appointments (paginated). A USER only sees their own, an ADMIN sees all |
-| GET | `/api/citas/disponibilidad` | USER/ADMIN | Free slots for `?fecha=YYYY-MM-DD&idServicio=N`. Optional `&peluqueroId=N` for a specific barber |
+| GET | `/api/citas/disponibilidad` | USER/ADMIN | Free slots for `?fecha=YYYY-MM-DD&idServicio=N`. Optional `&peluqueroId=N` for a specific barber. Empty on closed days |
+| GET | `/api/citas/dias-cerrados` | USER/ADMIN | Closed days (closed weekdays + blocked dates) with their reason. Optional `?desde=&hasta=`; defaults to the next 3 months, 12-month range cap |
 | GET | `/api/citas/{id}` | Own/ADMIN | Get an appointment by ID |
 | POST | `/api/citas` | USER/ADMIN | Book an appointment (a USER only for themselves), optionally with a barber |
 | PUT | `/api/citas/{id}` | Own/ADMIN | Update an appointment |
@@ -170,6 +174,13 @@ They boot the full application against a **real PostgreSQL** started in Docker (
 | POST | `/api/peluqueros` | ADMIN | Create a barber |
 | PUT | `/api/peluqueros/{id}` | ADMIN | Update a barber |
 | DELETE | `/api/peluqueros/{id}` | ADMIN | Deactivate a barber (soft delete) |
+
+### Closed days
+| Method | Endpoint | Access | Description |
+|--------|----------|--------|-------------|
+| GET | `/api/dias-bloqueados` | Authenticated | List blocked days from today onwards |
+| POST | `/api/dias-bloqueados` | ADMIN | Block a date (`fecha` + optional `motivo`). 409 if already blocked or if the day has live appointments |
+| DELETE | `/api/dias-bloqueados/{id}` | ADMIN | Unblock a date |
 
 ### Payments
 | Method | Endpoint | Access | Description |
@@ -193,12 +204,13 @@ They boot the full application against a **real PostgreSQL** started in Docker (
 
 ## Data Model
 
-Schema is managed with **Flyway** (migrations `V1` to `V7` in `src/main/resources/db/migration/`):
+Schema is managed with **Flyway** (migrations `V1` to `V8` in `src/main/resources/db/migration/`):
 
 * **`usuarios`** — customers and administrators: name, unique email, phone, hashed password, role, active flag and `token_version`.
 * **`servicios`** — salon catalog (haircuts, coloring...): description, duration in minutes, price, active flag.
 * **`peluqueros`** — barbers/stylists, with soft delete. An appointment may optionally be assigned to one.
 * **`citas`** — links a `usuario` with a `servicio` (and optionally a `peluquero`) at a specific time. Status enum (`PENDIENTE`, `CONFIRMADA`, `ANULADA`) and a `recordatorio_enviado` flag for the 24h reminder.
+* **`dias_bloqueados`** — dates the salon does not open (holidays, one-off closures), with an optional reason. Fixed closed weekdays are not stored here: they come from configuration.
 * **`pagos`** — payments linked 1:1 to an appointment. Card (Stripe), cash or transfer. Status: `PENDIENTE`, `PAGADO`, `REEMBOLSADO`, `CANCELADO`.
 * **`stripe_evento`** — processed Stripe event IDs, guaranteeing webhook idempotency.
 * **`password_reset_token`** — single-use password reset tokens with expiration.

@@ -79,6 +79,12 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/api/peluqueros/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/peluqueros/**").hasRole("ADMIN")
 
+                        // Los dias cerrados los consulta cualquier usuario autenticado (para el
+                        // calendario de agendar); solo un ADMIN puede bloquear o desbloquear.
+                        .requestMatchers(HttpMethod.GET, "/api/dias-bloqueados", "/api/dias-bloqueados/**").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/dias-bloqueados").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/dias-bloqueados/**").hasRole("ADMIN")
+
                         .requestMatchers("/api/estadisticas/**").hasRole("ADMIN")
 
                         .requestMatchers("/api/pagos/webhook").permitAll()

@@ -21,7 +21,7 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 * **Java 21 (Temurin LTS)**
 * **Spring Boot 4.0.3** (framework principal)
 * **PostgreSQL** (base de datos relacional)
-* **Flyway** (migraciones de esquema, V1-V7)
+* **Flyway** (migraciones de esquema, V1-V8)
 * **Spring Data JPA / Hibernate** (ORM)
 * **Spring Security + JWT** (autenticación stateless y autorización por roles)
 * **BCrypt** (hash unidireccional de contraseñas)
@@ -35,7 +35,7 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 
 ## Características
 
-* **Arquitectura por dominio:** el código se organiza por módulo de negocio (`usuario/`, `cita/`, `servicio/`, `pago/`, `peluquero/`, `estadistica/`, `notificacion/`, `auth/`, `security/`). Cada módulo agrupa su entidad, controller, service, repository y DTOs.
+* **Arquitectura por dominio:** el código se organiza por módulo de negocio (`usuario/`, `cita/`, `servicio/`, `pago/`, `peluquero/`, `calendario/`, `estadistica/`, `notificacion/`, `auth/`, `security/`). Cada módulo agrupa su entidad, controller, service, repository y DTOs.
 * **Constructor injection:** inyección de dependencias vía constructor con campos `final` (sin `@Autowired`), siguiendo las buenas prácticas de Spring para inmutabilidad y testabilidad.
 * **Autenticación JWT con roles:** login/registro con access tokens JWT (30 min) más **refresh tokens con rotación** (30 días). Dos roles: `USER` (clientes) y `ADMIN`. En cada request se valida además que la cuenta siga activa y que el `tokenVersion` del token coincida con el de la BD: cambiar la contraseña o el rol **revoca** los tokens emitidos antes (el rol y el estado activo se leen siempre de la BD, nunca del token).
 * **Recuperación de contraseña:** tokens de un solo uso enviados por correo, con expiración y **rate limiting por IP** (Bucket4j). El endpoint responde siempre 200 para evitar enumeración de usuarios.
@@ -43,7 +43,8 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 * **Multi-peluquero:** CRUD de peluqueros y **peluquero opcional** por cita. Los conflictos de horario se comprueban por peluquero ("sin asignar" bloquea el hueco completo) y la disponibilidad se puede consultar para un peluquero concreto.
 * **Endpoint de disponibilidad:** `/api/citas/disponibilidad` calcula los huecos libres de 30 minutos para un servicio en una fecha — opcionalmente para un peluquero concreto — descontando citas existentes y respetando el horario laboral.
 * **Validación de conflictos de horario:** se rechazan citas que se solapen, usando la duración del servicio para calcular cada rango.
-* **Validación de horario laboral:** las citas solo se pueden agendar de lunes a sábado de 9:00 a 20:00, y nunca en el pasado. El horario es **configurable** vía properties (`peluqueria.horario.apertura` / `peluqueria.horario.cierre`).
+* **Validación de horario laboral:** las citas solo se pueden agendar de lunes a sábado de 9:00 a 20:00, y nunca en el pasado. El horario y los días de la semana cerrados son **configurables** vía properties (`peluqueria.horario.apertura` / `peluqueria.horario.cierre` / `peluqueria.horario.dias-cerrados`).
+* **Días cerrados (festivos y cierres puntuales):** un ADMIN puede bloquear una fecha concreta con un motivo opcional (`/api/dias-bloqueados`). Un día bloqueado no devuelve horas libres y rechaza agendar y reprogramar indicando el motivo. `GET /api/citas/dias-cerrados` devuelve todos los días cerrados de un rango —los días de la semana fijos (domingo) y las fechas bloqueadas, unificados— para que los clientes los pinten **no seleccionables** en vez de dejar elegir un día sin horas disponibles. Bloquear un día que aún tiene citas vivas se rechaza (409) en vez de anularlas por sorpresa.
 * **Estadísticas de negocio:** `GET /api/estadisticas` (solo ADMIN) devuelve citas por estado, ingresos desglosados por método de pago (excluyendo reembolsos, calculados por fecha de pago), servicios más demandados y clientes nuevos. Por defecto usa los **últimos 30 días** si no se indica rango.
 * **Notificaciones por correo:** emails dirigidos por eventos (registro, cita agendada, modificada, anulada, pago confirmado, cambios de contraseña) desacoplados de la lógica de negocio mediante eventos de Spring (`@TransactionalEventListener(AFTER_COMMIT)`), más un **recordatorio de cita 24h antes** enviado por un scheduler (corre cada hora, `Clock` inyectable para testabilidad, el flag `recordatorio_enviado` garantiza un único envío).
 * **Control de propiedad (ownership):** un `USER` solo puede ver, modificar o eliminar sus propias citas y sus propios datos; un `ADMIN` puede acceder a todo. Los accesos no autorizados devuelven `403 Forbidden`.
@@ -54,7 +55,7 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 * **Manejo global de excepciones:** `@RestControllerAdvice` con handlers específicos para validación (400), no encontrado (404), acceso denegado (403), conflictos (409) y un handler genérico (500) que no expone detalles internos. Incluye logging con SLF4J.
 * **Documentación OpenAPI / Swagger UI:** generada automáticamente con springdoc-openapi, disponible en `/swagger-ui.html` y `/v3/api-docs`.
 * **Perfiles de configuración:** entornos `dev` y `prod` separados. El esquema se gestiona con **migraciones Flyway** (`src/main/resources/db/migration/`).
-* **Suite de tests (167 tests):** 157 tests unitarios que cubren la lógica de negocio sin Spring context ni base de datos, más 10 tests de integración con **Testcontainers** (PostgreSQL real en Docker) que cubren autenticación, reglas de ownership, estadísticas y el flujo completo del webhook de Stripe con verificación de firma real.
+* **Suite de tests (196 tests):** 186 tests unitarios que cubren la lógica de negocio sin Spring context ni base de datos, más 10 tests de integración con **Testcontainers** (PostgreSQL real en Docker) que cubren autenticación, reglas de ownership, estadísticas y el flujo completo del webhook de Stripe con verificación de firma real.
 
 ## Estructura del proyecto
 
@@ -77,15 +78,16 @@ Todos los módulos de negocio siguen el mismo esquema: entidad JPA, controller, 
 
 ## Tests
 
-**167 tests** se ejecutan en CI en cada push (GitHub Actions).
+**196 tests** se ejecutan en CI en cada push (GitHub Actions).
 
-### Tests unitarios (157)
+### Tests unitarios (186)
 
 Cubren toda la lógica de negocio sin Spring context ni base de datos (pocos segundos):
 
 | Clase | Tests | Cobertura |
 |-------|-------|-----------|
-| CitaServiceTest | 40 | Agendar, horario laboral, conflictos, CRUD, ownership, disponibilidad, paginación, validación de peluquero, auto-confirmación al pagar |
+| CitaServiceTest | 48 | Agendar, horario laboral, días cerrados, conflictos, CRUD, ownership, disponibilidad, paginación, validación de peluquero, auto-confirmación al pagar |
+| CalendarioServiceTest | 17 | Días de la semana cerrados, bloquear/desbloquear fechas, fecha pasada, duplicados, días con citas vivas, rangos de días cerrados |
 | UsuarioServiceTest | 26 | CRUD, email duplicado, hashing, soft delete, ownership, reactivar, paginación, búsqueda |
 | PagoServiceTest | 23 | PaymentIntents, webhooks, pago manual, reembolsos, polling, concurrencia |
 | JwtServiceTest | 9 | Generar/extraer/validar tokens, firmas, tokenVersion |
@@ -97,6 +99,7 @@ Cubren toda la lógica de negocio sin Spring context ni base de datos (pocos seg
 | PeluqueroServiceTest | 7 | CRUD de peluqueros, soft delete |
 | RecordatorioCitaSchedulerTest | 5 | Recordatorio 24h: envío único, ignora anuladas/ya notificadas, Clock inyectable |
 | CustomUserDetailsServiceTest | 4 | Carga de usuario, roles, estado |
+| HorarioPropertiesTest | 4 | Binding de las properties de horario, incluida la lista de días de la semana cerrados |
 | EstadisticasServiceTest | 3 | Agregaciones, desglose de ingresos, exclusión de reembolsos |
 
 ```bash
@@ -156,7 +159,8 @@ Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Dock
 | Método | Endpoint | Acceso | Descripción |
 |--------|----------|--------|-------------|
 | GET | `/api/citas` | USER/ADMIN | Listar citas (paginado). Un USER solo ve las suyas, un ADMIN todas |
-| GET | `/api/citas/disponibilidad` | USER/ADMIN | Slots libres para `?fecha=YYYY-MM-DD&idServicio=N`. Opcional `&peluqueroId=N` para un peluquero concreto |
+| GET | `/api/citas/disponibilidad` | USER/ADMIN | Slots libres para `?fecha=YYYY-MM-DD&idServicio=N`. Opcional `&peluqueroId=N` para un peluquero concreto. Vacío en los días cerrados |
+| GET | `/api/citas/dias-cerrados` | USER/ADMIN | Días cerrados (días de la semana cerrados + fechas bloqueadas) con su motivo. Opcional `?desde=&hasta=`; por defecto los 3 próximos meses, con tope de rango de 12 meses |
 | GET | `/api/citas/{id}` | Propio/ADMIN | Obtener cita por ID |
 | POST | `/api/citas` | USER/ADMIN | Agendar cita (un USER solo para sí mismo), opcionalmente con peluquero |
 | PUT | `/api/citas/{id}` | Propio/ADMIN | Actualizar cita |
@@ -170,6 +174,13 @@ Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Dock
 | POST | `/api/peluqueros` | ADMIN | Crear peluquero |
 | PUT | `/api/peluqueros/{id}` | ADMIN | Actualizar peluquero |
 | DELETE | `/api/peluqueros/{id}` | ADMIN | Desactivar peluquero (soft delete) |
+
+### Días cerrados
+| Método | Endpoint | Acceso | Descripción |
+|--------|----------|--------|-------------|
+| GET | `/api/dias-bloqueados` | Autenticado | Listar los días bloqueados de hoy en adelante |
+| POST | `/api/dias-bloqueados` | ADMIN | Bloquear una fecha (`fecha` + `motivo` opcional). 409 si ya estaba bloqueada o si ese día tiene citas vivas |
+| DELETE | `/api/dias-bloqueados/{id}` | ADMIN | Desbloquear una fecha |
 
 ### Pagos
 | Método | Endpoint | Acceso | Descripción |
@@ -193,12 +204,13 @@ Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Dock
 
 ## Modelo de datos
 
-El esquema se gestiona con **Flyway** (migraciones `V1` a `V7` en `src/main/resources/db/migration/`):
+El esquema se gestiona con **Flyway** (migraciones `V1` a `V8` en `src/main/resources/db/migration/`):
 
 * **`usuarios`** — clientes y administradores: nombre, email único, teléfono, contraseña hasheada, rol, flag de activo y `token_version`.
 * **`servicios`** — catálogo de la peluquería (cortes, tintes...): descripción, duración en minutos, precio, flag de activo.
 * **`peluqueros`** — peluqueros/estilistas, con soft delete. Una cita puede asignarse opcionalmente a uno.
 * **`citas`** — vincula un `usuario` con un `servicio` (y opcionalmente un `peluquero`) en una fecha/hora concreta. Enum de estado (`PENDIENTE`, `CONFIRMADA`, `ANULADA`) y flag `recordatorio_enviado` para el recordatorio 24h.
+* **`dias_bloqueados`** — fechas en las que la peluquería no abre (festivos, cierres puntuales), con motivo opcional. Los días de la semana cerrados de forma fija no se guardan aquí: salen de la configuración.
 * **`pagos`** — pagos vinculados 1:1 a una cita. Tarjeta (Stripe), efectivo o transferencia. Estados: `PENDIENTE`, `PAGADO`, `REEMBOLSADO`, `CANCELADO`.
 * **`stripe_evento`** — IDs de eventos de Stripe ya procesados, garantiza la idempotencia del webhook.
 * **`password_reset_token`** — tokens de un solo uso para restablecer contraseña, con expiración.
