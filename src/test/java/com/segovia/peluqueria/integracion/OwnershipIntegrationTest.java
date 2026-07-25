@@ -41,12 +41,12 @@ class OwnershipIntegrationTest extends AbstractIntegrationTest {
         String tokenB = (String) login(emailB, passB).get("token");
 
         // User A crea una cita
-        LocalDateTime maniana = LocalDateTime.now().plusDays(1).withHour(10).withMinute(0).withSecond(0).withNano(0);
+        LocalDateTime fechaCita = proximoLunesALas(10);
         var headersA = new HttpHeaders();
         headersA.setBearerAuth(tokenA);
         ResponseEntity<Map> citaResp = rest.exchange(url("/api/citas"), HttpMethod.POST,
                 new HttpEntity<>(Map.of("servicioId", idServicio,
-                        "fechaHora", maniana.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)), headersA),
+                        "fechaHora", fechaCita.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)), headersA),
                 Map.class);
         assertEquals(HttpStatus.OK, citaResp.getStatusCode());
         Integer idCita = (Integer) citaResp.getBody().get("idCita");
@@ -65,7 +65,7 @@ class OwnershipIntegrationTest extends AbstractIntegrationTest {
                 "User B no debe poder ver la cita de User A");
 
         // User B intenta EDITAR (PUT) la cita de User A → 403
-        LocalDateTime otraHora = maniana.plusHours(1);
+        LocalDateTime otraHora = fechaCita.plusHours(1);
         ResponseEntity<String> editBResp = rest.exchange(url("/api/citas/" + idCita),
                 HttpMethod.PUT,
                 new HttpEntity<>(Map.of("fechaHora", otraHora.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)), headersB),

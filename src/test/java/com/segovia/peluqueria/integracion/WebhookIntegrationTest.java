@@ -86,13 +86,14 @@ class WebhookIntegrationTest extends AbstractIntegrationTest {
         tokenCliente = (String) loginCliente.getBody().get("token");
 
         // Crear cita como cliente
-        LocalDateTime maniana = LocalDateTime.now().plusDays(1).withHour(11).withMinute(0).withSecond(0).withNano(0);
+        LocalDateTime fechaCita = proximoLunesALas(11);
         var headersCliente = new HttpHeaders();
         headersCliente.setBearerAuth(tokenCliente);
         var citaResp = rest.exchange(url("/api/citas"), HttpMethod.POST,
                 new HttpEntity<>(Map.of("servicioId", idServicio,
-                        "fechaHora", maniana.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)),
+                        "fechaHora", fechaCita.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)),
                         headersCliente), Map.class);
+        assertEquals(HttpStatus.OK, citaResp.getStatusCode(), "No se pudo crear la cita de partida");
         idCita = (Integer) citaResp.getBody().get("idCita");
     }
 

@@ -12,6 +12,11 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.temporal.TemporalAdjusters;
+
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
@@ -26,6 +31,15 @@ public abstract class AbstractIntegrationTest {
 
     @LocalServerPort
     protected int port;
+
+    /**
+     * Fecha para agendar citas en los tests: el próximo lunes a la hora indicada.
+     * Siempre es futura y nunca cae en un día cerrado (por defecto, el domingo), así que
+     * el resultado no depende del día de la semana en que se ejecute la suite.
+     */
+    protected static LocalDateTime proximoLunesALas(int hora) {
+        return LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY)).atTime(hora, 0);
+    }
 
     protected final RestTemplate rest;
 
