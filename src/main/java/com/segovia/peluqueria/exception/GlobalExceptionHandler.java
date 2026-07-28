@@ -1,5 +1,6 @@
 package com.segovia.peluqueria.exception;
 
+import com.segovia.peluqueria.almacen.AlmacenException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -94,6 +96,26 @@ public class GlobalExceptionHandler {
     public Map<String, String> manejarViolacionDeIntegridad(org.springframework.dao.DataIntegrityViolationException ex) {
         Map<String, String> error = new HashMap<>();
         error.put("error", "No se puede eliminar este registro porque tiene otros datos asociados.");
+        return error;
+    }
+
+    // El fichero subido pasa del tope: lo corta el contenedor antes de llegar al
+    // controlador, asi que no se puede tratar como una validacion normal.
+    @ResponseStatus(HttpStatus.PAYLOAD_TOO_LARGE)
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public Map<String, String> manejarSubidaDemasiadoGrande(MaxUploadSizeExceededException ex) {
+        Map<String, String> error = new HashMap<>();
+        error.put("error", "El fichero es demasiado grande.");
+        return error;
+    }
+
+    // Fallo del almacen de ficheros: el problema esta arriba, no en la peticion
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    @ExceptionHandler(AlmacenException.class)
+    public Map<String, String> manejarFalloDeAlmacen(AlmacenException ex) {
+        log.error("Fallo del almacen de ficheros", ex);
+        Map<String, String> error = new HashMap<>();
+        error.put("error", "No se ha podido guardar el fichero. Intentelo de nuevo.");
         return error;
     }
 

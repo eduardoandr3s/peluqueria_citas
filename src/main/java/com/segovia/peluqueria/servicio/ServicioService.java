@@ -1,11 +1,15 @@
 package com.segovia.peluqueria.servicio;
 
+import com.segovia.peluqueria.almacen.AlmacenFicheros;
+import com.segovia.peluqueria.almacen.AlmacenProperties;
+import com.segovia.peluqueria.almacen.ValidadorImagen;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.servicio.dto.ServicioRequestDTO;
 import com.segovia.peluqueria.servicio.dto.ServicioResponseDTO;
 import com.segovia.peluqueria.servicio.dto.ServicioUpdateDTO;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -13,16 +17,70 @@ import java.util.List;
 public class ServicioService {
 
     private final ServicioRepository servicioRepository;
+    private final AlmacenFicheros almacen;
+    private final ValidadorImagen validadorImagen;
+    private final AlmacenProperties almacenProperties;
 
-    public ServicioService(ServicioRepository servicioRepository) {
+    public ServicioService(ServicioRepository servicioRepository,
+                           AlmacenFicheros almacen,
+                           ValidadorImagen validadorImagen,
+                           AlmacenProperties almacenProperties) {
         this.servicioRepository = servicioRepository;
+        this.almacen = almacen;
+        this.validadorImagen = validadorImagen;
+        this.almacenProperties = almacenProperties;
     }
 
     @Transactional(readOnly = true)
     public List<ServicioResponseDTO> listarServicios() {
         return servicioRepository.findByActivoTrue().stream()
-                .map(ServicioResponseDTO::desde)
+                .map(this::aDTO)
                 .toList();
+    }
+
+    /** Traduce la clave guardada a una URL utilizable por el cliente. */
+    private ServicioResponseDTO aDTO(Servicio servicio) {
+        String clave = servicio.getImagenClave();
+        String url = (clave == null || clave.isBlank())
+                ? null
+                : almacen.urlDeLectura(almacenProperties.getBucketServicios(), clave);
+        return ServicioResponseDTO.desde(servicio, url);
+    }
+
+    /**
+     * Sustituye la foto del servicio. La clave la genera el validador (nunca el
+     * cliente) y la anterior se borra del almacen para no dejar objetos huerfanos
+     * ocupando cuota.
+     */
+    @Transactional
+    public ServicioResponseDTO subirImagen(Integer id, MultipartFile imagen) {
+        Servicio servicio = obtenerEntidadPorId(id);
+        ValidadorImagen.ImagenValidada validada = validadorImagen.validar(imagen, String.valueOf(id));
+        String bucket = almacenProperties.getBucketServicios();
+
+        String claveAnterior = servicio.getImagenClave();
+        String clave = almacen.guardar(bucket, validada.clave(), validada.contenido(), validada.contentType());
+        servicio.setImagenClave(clave);
+        Servicio guardado = servicioRepository.save(servicio);
+
+        if (claveAnterior != null && !claveAnterior.isBlank() && !claveAnterior.equals(clave)) {
+            almacen.borrar(bucket, claveAnterior);
+        }
+        return aDTO(guardado);
+    }
+
+    /** Quita la foto del servicio. Es idempotente: sin foto, no hace nada. */
+    @Transactional
+    public ServicioResponseDTO borrarImagen(Integer id) {
+        Servicio servicio = obtenerEntidadPorId(id);
+        String clave = servicio.getImagenClave();
+        if (clave == null || clave.isBlank()) {
+            return aDTO(servicio);
+        }
+        servicio.setImagenClave(null);
+        Servicio guardado = servicioRepository.save(servicio);
+        almacen.borrar(almacenProperties.getBucketServicios(), clave);
+        return aDTO(guardado);
     }
 
     @Transactional
@@ -32,7 +90,7 @@ public class ServicioService {
         servicio.setDescripcion(request.getDescripcion());
         servicio.setPrecio(request.getPrecio());
         servicio.setDuracion(request.getDuracion());
-        return ServicioResponseDTO.desde(servicioRepository.save(servicio));
+        return aDTO(servicioRepository.save(servicio));
     }
 
     private Servicio obtenerEntidadPorId(Integer id) {
@@ -43,7 +101,7 @@ public class ServicioService {
 
     @Transactional(readOnly = true)
     public ServicioResponseDTO obtenerServicioPorId(Integer id) {
-        return ServicioResponseDTO.desde(obtenerEntidadPorId(id));
+        return aDTO(obtenerEntidadPorId(id));
     }
 
     @Transactional
@@ -63,7 +121,7 @@ public class ServicioService {
             servicioExistente.setDuracion(request.getDuracion());
         }
 
-        return ServicioResponseDTO.desde(servicioRepository.save(servicioExistente));
+        return aDTO(servicioRepository.save(servicioExistente));
     }
 
     @Transactional

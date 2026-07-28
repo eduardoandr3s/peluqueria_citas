@@ -33,4 +33,11 @@ public class Servicio {
 
     @Column(nullable = false, columnDefinition = "boolean default true")
     private Boolean activo = true;
+
+    /**
+     * Clave del objeto en el almacen de ficheros, no la URL. La URL se construye
+     * al leer (ver {@code ServicioService}) para no atar las filas a un bucket.
+     */
+    @Column(name = "imagen_clave", length = 255)
+    private String imagenClave;
 }

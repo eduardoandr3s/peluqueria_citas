@@ -4,8 +4,10 @@ import com.segovia.peluqueria.servicio.dto.ServicioRequestDTO;
 import com.segovia.peluqueria.servicio.dto.ServicioResponseDTO;
 import com.segovia.peluqueria.servicio.dto.ServicioUpdateDTO;
 import jakarta.validation.Valid;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -43,5 +45,21 @@ public class ServicioController {
     public ResponseEntity<Void> eliminarServicio(@PathVariable Integer id) {
         servicioService.eliminarServicio(id);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Sube o sustituye la foto del servicio (solo ADMIN, ver {@code SecurityConfig}).
+     * Devuelve el servicio ya con la URL nueva para que el panel no tenga que
+     * recargar el listado.
+     */
+    @PostMapping(path = "/{id}/imagen", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ServicioResponseDTO subirImagen(@PathVariable Integer id,
+                                           @RequestParam("imagen") MultipartFile imagen) {
+        return servicioService.subirImagen(id, imagen);
+    }
+
+    @DeleteMapping("/{id}/imagen")
+    public ServicioResponseDTO borrarImagen(@PathVariable Integer id) {
+        return servicioService.borrarImagen(id);
     }
 }

@@ -14,7 +14,17 @@ public class ServicioResponseDTO {
     private Integer duracion;
     private Boolean activo;
 
+    /**
+     * URL de la foto del servicio, o null si no tiene. Se calcula al leer a partir
+     * de la clave guardada: los clientes nunca ven ni manejan la clave del objeto.
+     */
+    private String urlImagen;
+
     public static ServicioResponseDTO desde(Servicio servicio) {
+        return desde(servicio, null);
+    }
+
+    public static ServicioResponseDTO desde(Servicio servicio, String urlImagen) {
         if (servicio == null) {
             return null;
         }
@@ -25,6 +35,7 @@ public class ServicioResponseDTO {
         dto.setPrecio(servicio.getPrecio());
         dto.setDuracion(servicio.getDuracion());
         dto.setActivo(servicio.getActivo());
+        dto.setUrlImagen(urlImagen);
         return dto;
     }
 }

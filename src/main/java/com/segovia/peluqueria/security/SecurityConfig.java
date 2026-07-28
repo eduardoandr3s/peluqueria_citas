@@ -59,8 +59,13 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/servicios", "/api/servicios/**").permitAll()
+                        // Almacen local de desarrollo: en produccion las fotos las sirve
+                        // Supabase Storage y este handler no se registra (ver AlmacenConfig).
+                        .requestMatchers(HttpMethod.GET, "/media/**").permitAll()
 
                         .requestMatchers(HttpMethod.POST, "/api/servicios").hasRole("ADMIN")
+                        // La regla de POST de arriba es exacta y no cubre las subrutas.
+                        .requestMatchers(HttpMethod.POST, "/api/servicios/*/imagen").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/servicios/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/servicios/**").hasRole("ADMIN")
 
