@@ -1,5 +1,9 @@
 package com.segovia.peluqueria.usuario;
 
+import com.segovia.peluqueria.almacen.AlmacenEnMemoria;
+import com.segovia.peluqueria.almacen.AlmacenException;
+import com.segovia.peluqueria.almacen.AlmacenProperties;
+import com.segovia.peluqueria.almacen.ValidadorImagen;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.notificacion.evento.PasswordCambiadaEvent;
 import com.segovia.peluqueria.notificacion.evento.UsuarioRegistradoEvent;
@@ -13,6 +17,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -30,6 +35,8 @@ class UsuarioServiceTest {
     private UsuarioRepository usuarioRepository;
     private PasswordEncoder passwordEncoder;
     private ApplicationEventPublisher eventPublisher;
+    private AlmacenEnMemoria almacen;
+    private AlmacenProperties almacenProperties;
     private UsuarioService usuarioService;
 
     private final Pageable pageable = PageRequest.of(0, 20);
@@ -39,7 +46,10 @@ class UsuarioServiceTest {
         usuarioRepository = mock(UsuarioRepository.class);
         passwordEncoder = mock(PasswordEncoder.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
-        usuarioService = new UsuarioService(usuarioRepository, passwordEncoder, eventPublisher);
+        almacen = new AlmacenEnMemoria();
+        almacenProperties = new AlmacenProperties();
+        usuarioService = new UsuarioService(usuarioRepository, passwordEncoder, eventPublisher,
+                almacen, new ValidadorImagen(almacenProperties), almacenProperties);
 
         // Por defecto, el usuario autenticado es un ADMIN (acceso total).
         Usuario admin = new Usuario();
@@ -400,5 +410,186 @@ class UsuarioServiceTest {
         assertThrows(ResourceNotFoundException.class,
                 () -> usuarioService.cambiarRol(99, Rol.ADMIN));
         verify(usuarioRepository, never()).save(any());
+    }
+
+    // === Avatar ===
+
+    private String bucketAvatares() {
+        return almacenProperties.getBucketAvatares();
+    }
+
+    /** JPEG minimo valido: lo que se valida son los primeros bytes, no el nombre. */
+    private static MockMultipartFile jpeg() {
+        byte[] datos = new byte[64];
+        datos[0] = (byte) 0xFF;
+        datos[1] = (byte) 0xD8;
+        datos[2] = (byte) 0xFF;
+        return new MockMultipartFile("imagen", "yo.jpg", "image/jpeg", datos);
+    }
+
+    @Test
+    void subirAvatar_guardaElObjetoYDevuelveUrlFirmada() {
+        Usuario carlos = crearUsuarioBase();
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(carlos));
+        when(usuarioRepository.save(any(Usuario.class))).thenAnswer(i -> i.getArgument(0));
+
+        UsuarioResponseDTO resultado = usuarioService.subirAvatar(1, jpeg(), EMAIL_ADMIN);
+
+        assertNotNull(carlos.getAvatarClave());
+        // La clave la genera el servidor bajo el id del usuario; el nombre que manda
+        // el cliente ("yo.jpg") no aparece en ninguna parte.
+        assertTrue(carlos.getAvatarClave().startsWith("1/"));
+        assertFalse(carlos.getAvatarClave().contains("yo.jpg"));
+        assertTrue(almacen.contiene(bucketAvatares(), carlos.getAvatarClave()));
+        // El bucket es privado: la URL tiene que ser la firmada, no la publica.
+        assertTrue(resultado.getUrlAvatar().contains("/firmada/"));
+    }
+
+    @Test
+    void subirAvatar_sustituye_borraElAnterior() {
+        Usuario carlos = crearUsuarioBase();
+        carlos.setAvatarClave("1/anterior.jpg");
+        almacen.guardar(bucketAvatares(), "1/anterior.jpg", new byte[] { 1 }, "image/jpeg");
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(carlos));
+        when(usuarioRepository.save(any(Usuario.class))).thenAnswer(i -> i.getArgument(0));
+
+        usuarioService.subirAvatar(1, jpeg(), EMAIL_ADMIN);
+
+        // Sin esto cada reemplazo dejaria un huerfano comiendo cuota.
+        assertFalse(almacen.contiene(bucketAvatares(), "1/anterior.jpg"));
+        assertEquals(1, almacen.total());
+    }
+
+    @Test
+    void subirAvatar_mismoUsuario_noAdmin_exitoso() {
+        Usuario carlos = crearUsuarioBase();
+        when(usuarioRepository.findByEmail("carlos@test.com")).thenReturn(Optional.of(carlos));
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(carlos));
+        when(usuarioRepository.save(any(Usuario.class))).thenAnswer(i -> i.getArgument(0));
+
+        usuarioService.subirAvatar(1, jpeg(), "carlos@test.com");
+
+        assertTrue(almacen.contiene(bucketAvatares(), carlos.getAvatarClave()));
+    }
+
+    @Test
+    void subirAvatar_otroUsuario_noAdmin_lanzaAccessDenied() {
+        Usuario carlos = crearUsuarioBase();
+        when(usuarioRepository.findByEmail("carlos@test.com")).thenReturn(Optional.of(carlos));
+
+        // Carlos (USER, id=1) intenta ponerle un avatar al usuario id=2.
+        assertThrows(AccessDeniedException.class,
+                () -> usuarioService.subirAvatar(2, jpeg(), "carlos@test.com"));
+        verify(usuarioRepository, never()).save(any());
+        // Y no se ha subido nada: el permiso se comprueba antes de tocar el almacen.
+        assertEquals(0, almacen.total());
+    }
+
+    @Test
+    void subirAvatar_noEsUnaImagen_noGuardaNada() {
+        Usuario carlos = crearUsuarioBase();
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(carlos));
+
+        // Content-Type y extension de imagen, contenido que no lo es.
+        MockMultipartFile falso = new MockMultipartFile(
+                "imagen", "yo.jpg", "image/jpeg", "MZ ejecutable".getBytes());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> usuarioService.subirAvatar(1, falso, EMAIL_ADMIN));
+        assertNull(carlos.getAvatarClave());
+        assertEquals(0, almacen.total());
+    }
+
+    @Test
+    void borrarAvatar_quitaLaClaveYElObjeto() {
+        Usuario carlos = crearUsuarioBase();
+        carlos.setAvatarClave("1/actual.jpg");
+        almacen.guardar(bucketAvatares(), "1/actual.jpg", new byte[] { 1 }, "image/jpeg");
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(carlos));
+        when(usuarioRepository.save(any(Usuario.class))).thenAnswer(i -> i.getArgument(0));
+
+        UsuarioResponseDTO resultado = usuarioService.borrarAvatar(1, EMAIL_ADMIN);
+
+        assertNull(carlos.getAvatarClave());
+        assertNull(resultado.getUrlAvatar());
+        assertEquals(0, almacen.total());
+    }
+
+    @Test
+    void borrarAvatar_sinAvatar_esIdempotente() {
+        Usuario carlos = crearUsuarioBase();
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(carlos));
+
+        UsuarioResponseDTO resultado = usuarioService.borrarAvatar(1, EMAIL_ADMIN);
+
+        assertNull(resultado.getUrlAvatar());
+        verify(usuarioRepository, never()).save(any());
+    }
+
+    @Test
+    void borrarAvatar_otroUsuario_noAdmin_lanzaAccessDenied() {
+        Usuario carlos = crearUsuarioBase();
+        carlos.setAvatarClave("2/de-otro.jpg");
+        almacen.guardar(bucketAvatares(), "2/de-otro.jpg", new byte[] { 1 }, "image/jpeg");
+        when(usuarioRepository.findByEmail("carlos@test.com")).thenReturn(Optional.of(carlos));
+
+        assertThrows(AccessDeniedException.class,
+                () -> usuarioService.borrarAvatar(2, "carlos@test.com"));
+        assertTrue(almacen.contiene(bucketAvatares(), "2/de-otro.jpg"));
+    }
+
+    @Test
+    void obtenerUsuarioActual_conAvatar_devuelveUrlFirmada() {
+        Usuario carlos = crearUsuarioBase();
+        carlos.setAvatarClave("1/actual.jpg");
+        when(usuarioRepository.findByEmail("carlos@test.com")).thenReturn(Optional.of(carlos));
+
+        UsuarioResponseDTO resultado = usuarioService.obtenerUsuarioActual("carlos@test.com");
+
+        assertNotNull(resultado.getUrlAvatar());
+        assertTrue(resultado.getUrlAvatar().contains("/firmada/"));
+    }
+
+    @Test
+    void obtenerUsuarioActual_siNoSePuedeFirmar_devuelveElPerfilSinFoto() {
+        Usuario carlos = crearUsuarioBase();
+        carlos.setAvatarClave("1/actual.jpg");
+        when(usuarioRepository.findByEmail("carlos@test.com")).thenReturn(Optional.of(carlos));
+        almacen.fallarAlFirmar();
+
+        UsuarioResponseDTO resultado = usuarioService.obtenerUsuarioActual("carlos@test.com");
+
+        // Un fallo del almacen no puede dejar al usuario sin ver sus propios datos por
+        // una imagen decorativa.
+        assertNull(resultado.getUrlAvatar());
+        assertEquals("carlos@test.com", resultado.getEmail());
+    }
+
+    @Test
+    void subirAvatar_siNoSePuedeFirmar_propagaElFallo() {
+        Usuario carlos = crearUsuarioBase();
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(carlos));
+        when(usuarioRepository.save(any(Usuario.class))).thenAnswer(i -> i.getArgument(0));
+        almacen.fallarAlFirmar();
+
+        // Aqui la peticion era justamente cambiar la foto: devolverla a null diria que
+        // no hay ninguna cuando si se ha guardado.
+        assertThrows(AlmacenException.class,
+                () -> usuarioService.subirAvatar(1, jpeg(), EMAIL_ADMIN));
+        assertNotNull(carlos.getAvatarClave());
+    }
+
+    @Test
+    void listarUsuarios_noFirmaLosAvatares() {
+        Usuario conAvatar = crearUsuarioBase();
+        conAvatar.setAvatarClave("1/actual.jpg");
+        when(usuarioRepository.findByActivoTrue(pageable))
+                .thenReturn(new PageImpl<>(List.of(conAvatar)));
+
+        Page<UsuarioResponseDTO> resultado = usuarioService.listarUsuarios(false, null, pageable);
+
+        // Deliberado: firmar cuesta una llamada al almacen por fila. El avatar se
+        // resuelve solo al abrir un usuario concreto.
+        assertNull(resultado.getContent().get(0).getUrlAvatar());
     }
 }

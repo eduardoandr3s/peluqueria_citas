@@ -73,6 +73,12 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/usuarios").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PATCH, "/api/usuarios/*/rol").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PATCH, "/api/usuarios/*/activar").hasRole("ADMIN")
+                        // El avatar NO es cosa solo de ADMIN: cada usuario gestiona el suyo. La
+                        // comprobacion de que el id es el propio la hace UsuarioService, que es
+                        // quien puede resolverla. Van antes del DELETE /** de abajo, que si es
+                        // de ADMIN y en otro orden se tragaria el borrado del avatar propio.
+                        .requestMatchers(HttpMethod.POST, "/api/usuarios/*/avatar").authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/api/usuarios/*/avatar").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/usuarios/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/usuarios/**").authenticated()
                         .requestMatchers(HttpMethod.PUT, "/api/usuarios/**").authenticated()

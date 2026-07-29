@@ -16,7 +16,22 @@ public class UsuarioResponseDTO {
     private Rol rol;
     private Boolean activo;
 
+    /**
+     * URL firmada del avatar, o null si no tiene o si quien lee no la necesita.
+     *
+     * <p>Se rellena solo donde se muestra un usuario concreto ({@code /me} y
+     * {@code /{id}}): firmar es una llamada al almacen, y hacerlo por cada fila de
+     * un listado paginado seria una por usuario. El listado devuelve null a
+     * proposito.
+     */
+    private String urlAvatar;
+
+    /** Sin avatar. Es el que usan los listados y los DTO que anidan un usuario. */
     public static UsuarioResponseDTO desde(Usuario usuario) {
+        return desde(usuario, null);
+    }
+
+    public static UsuarioResponseDTO desde(Usuario usuario, String urlAvatar) {
         if (usuario == null) {
             return null;
         }
@@ -28,6 +43,7 @@ public class UsuarioResponseDTO {
         dto.setFechaRegistro(usuario.getFechaRegistro());
         dto.setRol(usuario.getRol());
         dto.setActivo(usuario.getActivo());
+        dto.setUrlAvatar(urlAvatar);
         return dto;
     }
 }

@@ -6,6 +6,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.util.unit.DataSize;
 
+import java.time.Duration;
+
 /**
  * Configuracion del almacen de ficheros ({@code peluqueria.almacen.*}).
  *
@@ -30,6 +32,18 @@ public class AlmacenProperties {
 
     /** Bucket de las fotos del catalogo de servicios. Lectura publica. */
     private String bucketServicios = "servicios";
+
+    /**
+     * Bucket de los avatares. A diferencia del de servicios NO es publico: el
+     * avatar es un dato personal, asi que se lee con URL firmada.
+     */
+    private String bucketAvatares = "avatares";
+
+    /**
+     * Validez de las URLs firmadas de contenido privado. Cuanto mas corta, menos
+     * dura una URL filtrada; cuanto mas larga, mejor la cachea el navegador.
+     */
+    private Duration validezUrlFirmada = Duration.ofHours(1);
 
     /** Tope de tamano por fichero. Se valida antes de leer el contenido entero. */
     private DataSize tamanoMaximo = DataSize.ofMegabytes(2);

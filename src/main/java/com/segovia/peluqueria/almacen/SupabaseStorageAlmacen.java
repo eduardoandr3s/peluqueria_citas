@@ -6,6 +6,9 @@ import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import java.time.Duration;
+import java.util.Map;
+
 /**
  * Almacen sobre Supabase Storage, por su API REST.
  *
@@ -21,8 +24,17 @@ public class SupabaseStorageAlmacen implements AlmacenFicheros {
     private final String baseUrl;
 
     public SupabaseStorageAlmacen(AlmacenProperties propiedades) {
+        this(propiedades, RestClient.builder());
+    }
+
+    /**
+     * Costura para los tests: recibir el constructor del cliente permite enchufarle
+     * un servidor simulado y comprobar las peticiones que se mandan a Supabase, que
+     * de otro modo solo se ejercitarian en produccion.
+     */
+    SupabaseStorageAlmacen(AlmacenProperties propiedades, RestClient.Builder constructor) {
         this.baseUrl = propiedades.getSupabaseUrl().replaceAll("/+$", "");
-        this.cliente = RestClient.builder()
+        this.cliente = constructor
                 .baseUrl(this.baseUrl)
                 .defaultHeader("Authorization", "Bearer " + propiedades.getServiceKey())
                 // La pasarela de Supabase enruta por la cabecera apikey; sin ella hay
@@ -32,11 +44,24 @@ public class SupabaseStorageAlmacen implements AlmacenFicheros {
                 .build();
     }
 
+    /**
+     * Ruta del objeto dentro de la API.
+     *
+     * <p>Se concatena en vez de pasar la clave como variable de plantilla porque al
+     * expandirla se escaparian sus barras a {@code %2F}, y la clave lleva la carpeta
+     * dentro ({@code "7/uuid.jpg"}): aqui tiene que seguir siendo una ruta. Las claves
+     * las genera {@link ValidadorImagen} (id + UUID + extension), asi que no traen
+     * nada que hubiera que escapar.
+     */
+    private static String ruta(String prefijo, String bucket, String clave) {
+        return prefijo + bucket + "/" + clave;
+    }
+
     @Override
     public String guardar(String bucket, String clave, byte[] contenido, String contentType) {
         try {
             cliente.post()
-                    .uri("/storage/v1/object/{bucket}/{clave}", bucket, clave)
+                    .uri(ruta("/storage/v1/object/", bucket, clave))
                     .contentType(MediaType.parseMediaType(contentType))
                     // Sustituir en vez de fallar si la clave ya existe.
                     .header("x-upsert", "true")
@@ -53,7 +78,7 @@ public class SupabaseStorageAlmacen implements AlmacenFicheros {
     public void borrar(String bucket, String clave) {
         try {
             cliente.delete()
-                    .uri("/storage/v1/object/{bucket}/{clave}", bucket, clave)
+                    .uri(ruta("/storage/v1/object/", bucket, clave))
                     .retrieve()
                     .toBodilessEntity();
         } catch (RestClientException e) {
@@ -66,5 +91,29 @@ public class SupabaseStorageAlmacen implements AlmacenFicheros {
     @Override
     public String urlDeLectura(String bucket, String clave) {
         return baseUrl + "/storage/v1/object/public/" + bucket + "/" + clave;
+    }
+
+    /** Lo que devuelve el endpoint de firma. El nombre del campo es el de la API. */
+    private record RespuestaFirma(String signedURL) {}
+
+    @Override
+    public String urlFirmada(String bucket, String clave, Duration validez) {
+        try {
+            RespuestaFirma respuesta = cliente.post()
+                    .uri(ruta("/storage/v1/object/sign/", bucket, clave))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("expiresIn", validez.toSeconds()))
+                    .retrieve()
+                    .body(RespuestaFirma.class);
+
+            if (respuesta == null || respuesta.signedURL() == null || respuesta.signedURL().isBlank()) {
+                throw new AlmacenException("El almacen no ha devuelto una URL firmada para " + bucket + "/" + clave);
+            }
+            // signedURL viene RELATIVA a /storage/v1 (p.ej. "/object/sign/avatares/7/x.jpg?token=..."),
+            // asi que hay que prefijarla o el cliente recibe una URL que no resuelve.
+            return baseUrl + "/storage/v1" + respuesta.signedURL();
+        } catch (RestClientException e) {
+            throw new AlmacenException("No se ha podido firmar la URL de " + bucket + "/" + clave, e);
+        }
     }
 }

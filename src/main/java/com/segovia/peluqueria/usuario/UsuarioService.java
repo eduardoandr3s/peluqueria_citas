@@ -1,5 +1,9 @@
 package com.segovia.peluqueria.usuario;
 
+import com.segovia.peluqueria.almacen.AlmacenException;
+import com.segovia.peluqueria.almacen.AlmacenFicheros;
+import com.segovia.peluqueria.almacen.AlmacenProperties;
+import com.segovia.peluqueria.almacen.ValidadorImagen;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.notificacion.evento.PasswordCambiadaEvent;
 import com.segovia.peluqueria.notificacion.evento.UsuarioRegistradoEvent;
@@ -15,6 +19,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
 
@@ -26,13 +31,22 @@ public class UsuarioService {
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
     private final ApplicationEventPublisher eventPublisher;
+    private final AlmacenFicheros almacen;
+    private final ValidadorImagen validadorImagen;
+    private final AlmacenProperties almacenProperties;
 
     public UsuarioService(UsuarioRepository usuarioRepository,
                           PasswordEncoder passwordEncoder,
-                          ApplicationEventPublisher eventPublisher) {
+                          ApplicationEventPublisher eventPublisher,
+                          AlmacenFicheros almacen,
+                          ValidadorImagen validadorImagen,
+                          AlmacenProperties almacenProperties) {
         this.usuarioRepository = usuarioRepository;
         this.passwordEncoder = passwordEncoder;
         this.eventPublisher = eventPublisher;
+        this.almacen = almacen;
+        this.validadorImagen = validadorImagen;
+        this.almacenProperties = almacenProperties;
     }
 
     @Transactional(readOnly = true)
@@ -86,11 +100,88 @@ public class UsuarioService {
         }
     }
 
+    /**
+     * URL firmada del avatar, o null si no tiene. Propaga el fallo del almacen.
+     *
+     * <p>Solo se resuelve en respuestas de un usuario concreto: el bucket es privado,
+     * asi que cada avatar cuesta una llamada al almacen y en un listado paginado
+     * seria una por fila.
+     */
+    private String urlAvatar(Usuario usuario) {
+        String clave = usuario.getAvatarClave();
+        if (clave == null || clave.isBlank()) {
+            return null;
+        }
+        return almacen.urlFirmada(
+                almacenProperties.getBucketAvatares(), clave, almacenProperties.getValidezUrlFirmada());
+    }
+
+    /**
+     * DTO de un usuario concreto, con su avatar si se puede firmar.
+     *
+     * <p>Si el almacen falla se devuelve sin foto en vez de propagar el error: estas
+     * peticiones (ver el perfil, el detalle, guardar el nombre) no son sobre el
+     * avatar, y un 502 dejaria al usuario sin poder ver sus datos por una imagen
+     * decorativa. Las que si son sobre el avatar no pasan por aqui.
+     */
+    private UsuarioResponseDTO conAvatar(Usuario usuario) {
+        try {
+            return UsuarioResponseDTO.desde(usuario, urlAvatar(usuario));
+        } catch (AlmacenException e) {
+            log.warn("No se ha podido firmar el avatar del usuario id={}: {}",
+                    usuario.getIdUsuario(), e.getMessage());
+            return UsuarioResponseDTO.desde(usuario);
+        }
+    }
+
     @Transactional(readOnly = true)
     public UsuarioResponseDTO obtenerUsuarioPorId(Integer id, String emailAutenticado){
         verificarAcceso(id, emailAutenticado);
         Usuario usuario = obtenerEntidadPorId(id);
-        return UsuarioResponseDTO.desde(usuario);
+        return conAvatar(usuario);
+    }
+
+    /**
+     * Sustituye el avatar del usuario. Cada uno sube el suyo y un ADMIN puede subir
+     * el de cualquiera, asi que el permiso no es de rol sino de propiedad y se
+     * comprueba aqui (igual que en el resto del dominio).
+     *
+     * <p>La clave la genera el validador a partir del contenido, nunca el cliente, y
+     * la anterior se borra para no dejar objetos huerfanos ocupando cuota.
+     */
+    @Transactional
+    public UsuarioResponseDTO subirAvatar(Integer id, MultipartFile imagen, String emailAutenticado) {
+        verificarAcceso(id, emailAutenticado);
+        Usuario usuario = obtenerEntidadPorId(id);
+        ValidadorImagen.ImagenValidada validada = validadorImagen.validar(imagen, String.valueOf(id));
+        String bucket = almacenProperties.getBucketAvatares();
+
+        String claveAnterior = usuario.getAvatarClave();
+        String clave = almacen.guardar(bucket, validada.clave(), validada.contenido(), validada.contentType());
+        usuario.setAvatarClave(clave);
+        Usuario guardado = usuarioRepository.save(usuario);
+
+        if (claveAnterior != null && !claveAnterior.isBlank() && !claveAnterior.equals(clave)) {
+            almacen.borrar(bucket, claveAnterior);
+        }
+        // Aqui si se propaga un fallo al firmar (502): la peticion era precisamente
+        // para cambiar la foto, y devolverla a null diria que no hay ninguna.
+        return UsuarioResponseDTO.desde(guardado, urlAvatar(guardado));
+    }
+
+    /** Quita el avatar. Es idempotente: sin avatar, no hace nada. */
+    @Transactional
+    public UsuarioResponseDTO borrarAvatar(Integer id, String emailAutenticado) {
+        verificarAcceso(id, emailAutenticado);
+        Usuario usuario = obtenerEntidadPorId(id);
+        String clave = usuario.getAvatarClave();
+        if (clave == null || clave.isBlank()) {
+            return UsuarioResponseDTO.desde(usuario);
+        }
+        usuario.setAvatarClave(null);
+        Usuario guardado = usuarioRepository.save(usuario);
+        almacen.borrar(almacenProperties.getBucketAvatares(), clave);
+        return UsuarioResponseDTO.desde(guardado);
     }
 
     // Datos del usuario autenticado (GET /api/usuarios/me): se resuelve por el email del token,
@@ -99,7 +190,7 @@ public class UsuarioService {
     public UsuarioResponseDTO obtenerUsuarioActual(String emailAutenticado){
         Usuario usuario = usuarioRepository.findByEmail(emailAutenticado)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con email: " + emailAutenticado));
-        return UsuarioResponseDTO.desde(usuario);
+        return conAvatar(usuario);
     }
 
     @Transactional
@@ -134,7 +225,9 @@ public class UsuarioService {
                     new PasswordCambiadaEvent(usuarioGuardado.getNombre(), usuarioGuardado.getEmail()));
         }
 
-        return UsuarioResponseDTO.desde(usuarioGuardado);
+        // Con avatar, como el resto de respuestas de un usuario concreto: si no, quien
+        // pinte el resultado de guardar el nombre veria desaparecer la foto.
+        return conAvatar(usuarioGuardado);
     }
 
     @Transactional

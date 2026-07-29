@@ -44,6 +44,11 @@ public class Usuario {
     @Column(nullable = false)
     private Boolean activo = true;
 
+    // Clave del avatar en el almacen de ficheros (p.ej. "7/uuid.jpg"), no la URL: el
+    // bucket es privado y la URL se firma al leer, asi que caduca.
+    @Column(name = "avatar_clave", length = 255)
+    private String avatarClave;
+
     // Se incrementa para invalidar tokens emitidos antes (ej. cambio de password o de rol).
     // El JWT lleva esta version como claim; el filtro la compara con la de BD en cada request.
     @Column(name = "token_version", nullable = false)

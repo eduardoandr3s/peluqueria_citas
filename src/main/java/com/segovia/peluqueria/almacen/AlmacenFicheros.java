@@ -1,5 +1,7 @@
 package com.segovia.peluqueria.almacen;
 
+import java.time.Duration;
+
 /**
  * Puerto de almacenamiento de ficheros binarios.
  *
@@ -26,4 +28,14 @@ public interface AlmacenFicheros {
 
     /** URL con la que un cliente puede descargar el objeto. */
     String urlDeLectura(String bucket, String clave);
+
+    /**
+     * URL temporal para un objeto de un bucket privado.
+     *
+     * <p>Existe porque no todo el contenido puede ser publico: la foto del
+     * catalogo si, pero el avatar de un cliente es un dato personal y su bucket no
+     * admite lectura anonima. La URL caduca, asi que se firma al leer y no se
+     * guarda en ninguna parte.
+     */
+    String urlFirmada(String bucket, String clave, Duration validez);
 }

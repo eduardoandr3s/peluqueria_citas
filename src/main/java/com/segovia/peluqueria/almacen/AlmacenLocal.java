@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 
 /**
  * Almacen en el disco local, para desarrollo y para que el repositorio se pueda
@@ -56,6 +57,16 @@ public class AlmacenLocal implements AlmacenFicheros {
     @Override
     public String urlDeLectura(String bucket, String clave) {
         return baseUrl + "/media/" + bucket + "/" + clave;
+    }
+
+    /**
+     * Misma URL que {@link #urlDeLectura}: en disco no hay nada que firmar, porque
+     * no hay bucket privado del que restringir la lectura. Es deliberado y no una
+     * implementacion a medias; en produccion el almacen es Supabase.
+     */
+    @Override
+    public String urlFirmada(String bucket, String clave, Duration validez) {
+        return urlDeLectura(bucket, clave);
     }
 
     /**

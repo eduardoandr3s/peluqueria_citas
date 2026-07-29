@@ -8,9 +8,11 @@ import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/usuarios")
@@ -64,5 +66,22 @@ public class UsuarioController {
     public ResponseEntity<Void> eliminarUsuario(@PathVariable Integer id){
         usuarioService.eliminarUsuario(id);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Sube o sustituye el avatar. No basta con estar autenticado: cada usuario solo
+     * puede tocar el suyo (un ADMIN, el de cualquiera), y eso lo comprueba el
+     * servicio, que es quien sabe de quien es el id.
+     */
+    @PostMapping(path = "/{id}/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public UsuarioResponseDTO subirAvatar(@PathVariable Integer id,
+                                          @RequestParam("imagen") MultipartFile imagen,
+                                          Authentication authentication){
+        return usuarioService.subirAvatar(id, imagen, authentication.getName());
+    }
+
+    @DeleteMapping("/{id}/avatar")
+    public UsuarioResponseDTO borrarAvatar(@PathVariable Integer id, Authentication authentication){
+        return usuarioService.borrarAvatar(id, authentication.getName());
     }
 }
