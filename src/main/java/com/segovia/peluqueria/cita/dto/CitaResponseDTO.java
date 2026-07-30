@@ -19,4 +19,7 @@ public class CitaResponseDTO {
     private PeluqueroResponseDTO peluquero;
     // Estado del pago asociado a la cita; null si la cita no tiene ningun pago registrado.
     private EstadoPago estadoPago;
+    // Id de ese pago, para pedir su recibo sin tener que consultar el pago aparte. Viaja
+    // aqui porque el listado ya trae el pago de cada cita en una sola consulta.
+    private Integer idPago;
 }

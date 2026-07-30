@@ -3,6 +3,7 @@ package com.segovia.peluqueria.pago;
 import com.segovia.peluqueria.cita.Cita;
 import com.segovia.peluqueria.cita.CitaRepository;
 import com.segovia.peluqueria.cita.EstadoCita;
+import com.segovia.peluqueria.exception.EstadoInvalidoException;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.notificacion.evento.PagoConfirmadoEvent;
 import com.segovia.peluqueria.pago.PaymentGateway.EventoPasarela;
@@ -50,25 +51,32 @@ public class PagoService {
     private static final Set<String> TIPOS_GESTIONADOS =
             Set.of(INTENT_COMPLETADO, INTENT_FALLIDO, INTENT_CANCELADO);
 
+    /** Estados en los que un pago tiene justificante: ver {@code generarRecibo}. */
+    private static final Set<EstadoPago> ESTADOS_CON_RECIBO =
+            Set.of(EstadoPago.PAGADO, EstadoPago.REEMBOLSADO);
+
     private final PagoRepository pagoRepository;
     private final CitaRepository citaRepository;
     private final UsuarioRepository usuarioRepository;
     private final StripeEventoRepository stripeEventoRepository;
     private final PaymentGateway paymentGateway;
     private final ApplicationEventPublisher eventPublisher;
+    private final ReciboPdfGenerador reciboPdfGenerador;
 
     public PagoService(PagoRepository pagoRepository,
                        CitaRepository citaRepository,
                        UsuarioRepository usuarioRepository,
                        StripeEventoRepository stripeEventoRepository,
                        PaymentGateway paymentGateway,
-                       ApplicationEventPublisher eventPublisher) {
+                       ApplicationEventPublisher eventPublisher,
+                       ReciboPdfGenerador reciboPdfGenerador) {
         this.pagoRepository = pagoRepository;
         this.citaRepository = citaRepository;
         this.usuarioRepository = usuarioRepository;
         this.stripeEventoRepository = stripeEventoRepository;
         this.paymentGateway = paymentGateway;
         this.eventPublisher = eventPublisher;
+        this.reciboPdfGenerador = reciboPdfGenerador;
     }
 
     @Transactional
@@ -225,6 +233,36 @@ public class PagoService {
                 .orElseThrow(() -> new ResourceNotFoundException("No hay un pago registrado para esta cita."));
         return PagoResponseDTO.desde(pago);
     }
+
+    /**
+     * Recibo en PDF de un pago, generado al vuelo.
+     *
+     * <p>Solo se emite para pagos <b>cobrados o reembolsados</b>: los dos son hechos que
+     * ocurrieron y merecen justificante. Un recibo de un pago PENDIENTE o CANCELADO
+     * afirmaria que se cobro un dinero que no ha entrado, asi que se rechaza con 409 en vez
+     * de generar un documento que miente.
+     *
+     * @param idPago          id del pago, no de la cita
+     * @param emailAutenticado quien lo pide: debe ser el dueno de la cita o un ADMIN
+     */
+    @Transactional(readOnly = true)
+    public Recibo generarRecibo(Integer idPago, String emailAutenticado) {
+        Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
+        Pago pago = pagoRepository.findById(idPago)
+                .orElseThrow(() -> new ResourceNotFoundException("Pago no encontrado con id: " + idPago));
+        verificarAcceso(pago.getCita(), actual);
+
+        if (!ESTADOS_CON_RECIBO.contains(pago.getEstadoPago())) {
+            throw new EstadoInvalidoException(
+                    "No se puede emitir un recibo de un pago en estado " + pago.getEstadoPago()
+                            + ": solo los pagos cobrados o reembolsados tienen justificante.");
+        }
+
+        return new Recibo(reciboPdfGenerador.generar(pago), reciboPdfGenerador.nombreFichero(pago));
+    }
+
+    /** PDF de un recibo y el nombre con el que debe descargarse. */
+    public record Recibo(byte[] contenido, String nombreFichero) {}
 
     /**
      * Listado de pagos para el panel de administracion, con filtros opcionales y paginado.

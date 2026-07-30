@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="es">
+<head>
+    <title>Recibo</title>
+    <!--/*
+      openhtmltopdf parsea XHTML estricto, y eso impone dos cosas en esta plantilla:
+
+      1) NO se usa ninguna etiqueta vacia (meta, br, hr, img). Thymeleaf en modo HTML
+         puede emitirlas sin cerrar y el parser las rechazaria. Las separaciones se hacen
+         con bordes.
+      2) NO se usan entidades HTML con nombre (&nbsp;, &euro;, &ordm;, &middot;). Sin DTD
+         solo existen las cinco de XML (&amp; &lt; &gt; &quot; &apos;) y cualquier otra
+         revienta el render con «The entity ... was referenced, but not declared». Van como
+         caracter literal o como referencia numerica.
+
+      Tampoco hay CSS ni imagenes externas: el documento es autocontenido, asi que
+      generar un recibo no depende de la red. Los colores son claros a proposito, esto
+      se imprime (los correos si van en oscuro).
+    */-->
+    <style>
+        @page { size: A4; margin: 2cm; }
+        body { font-family: Helvetica, sans-serif; font-size: 11pt; color: #1f1f1f; }
+        .cabecera { border-bottom: 3px solid #e07a5f; padding-bottom: 12px; }
+        .negocio { font-size: 20pt; font-weight: bold; margin: 0; }
+        .subtitulo { font-size: 9pt; color: #6b6b6b; margin: 4px 0 0; }
+        .meta { margin-top: 24px; font-size: 10pt; color: #4a4a4a; }
+        .meta strong { color: #1f1f1f; }
+        h2 { font-size: 12pt; margin: 28px 0 8px; color: #1f1f1f; }
+        table { width: 100%; border-collapse: collapse; }
+        .datos td { padding: 7px 0; border-bottom: 1px solid #e6e6e6; vertical-align: top; }
+        .datos td.etiqueta { color: #6b6b6b; width: 34%; }
+        .total { margin-top: 20px; border-top: 2px solid #1f1f1f; }
+        .total td { padding: 12px 0 0; font-size: 14pt; font-weight: bold; }
+        .total td.derecha { text-align: right; }
+        .aviso-reembolso { margin-top: 20px; padding: 10px 14px; background-color: #fdf1ec;
+                           border-left: 4px solid #e07a5f; font-size: 10pt; }
+        .pie { margin-top: 40px; padding-top: 12px; border-top: 1px solid #e6e6e6;
+               font-size: 8.5pt; color: #8a8a8a; line-height: 1.5; }
+    </style>
+</head>
+<body>
+
+<div class="cabecera">
+    <p class="negocio">Lalo Segovia</p>
+    <p class="subtitulo">Peluqueria</p>
+</div>
+
+<p class="meta">
+    <strong>Recibo n.º <span th:text="${numero}">42</span></strong>
+    &#160;·&#160;
+    Emitido el <span th:text="${fechaEmision}">30/07/2026</span>
+</p>
+
+<h2>Cliente</h2>
+<table class="datos">
+    <tr>
+        <td class="etiqueta">Nombre</td>
+        <td th:text="${clienteNombre}">Nombre del cliente</td>
+    </tr>
+    <tr>
+        <td class="etiqueta">Correo</td>
+        <td th:text="${clienteEmail}">cliente@ejemplo.com</td>
+    </tr>
+</table>
+
+<h2>Servicio</h2>
+<table class="datos">
+    <tr>
+        <td class="etiqueta">Concepto</td>
+        <td th:text="${servicio}">Corte de pelo</td>
+    </tr>
+    <tr>
+        <td class="etiqueta">Cita</td>
+        <td th:text="${citaFecha}">30/07/2026 a las 10:00</td>
+    </tr>
+    <tr th:if="${peluquero != null}">
+        <td class="etiqueta">Peluquero</td>
+        <td th:text="${peluquero}">Lalo</td>
+    </tr>
+    <tr>
+        <td class="etiqueta">Metodo de pago</td>
+        <td th:text="${metodoPago}">Tarjeta</td>
+    </tr>
+    <tr th:if="${referencia != null}">
+        <td class="etiqueta">Referencia</td>
+        <td th:text="${referencia}">pi_3ABC...</td>
+    </tr>
+</table>
+
+<table class="total">
+    <tr>
+        <td>Total</td>
+        <td class="derecha"><span th:text="${importe}">25,00</span> €</td>
+    </tr>
+</table>
+
+<div class="aviso-reembolso" th:if="${reembolsado}">
+    <strong>Este pago ha sido reembolsado.</strong>
+    El importe se devolvio por el mismo metodo con el que se pago.
+</div>
+
+<div class="pie">
+    <p>
+        Este documento es un <strong>justificante de pago</strong>, no una factura: no incluye datos
+        fiscales ni sirve como tal a efectos tributarios. Si necesitas una factura, pidela en la
+        peluqueria.
+    </p>
+    <p>Documento generado automaticamente. No requiere firma.</p>
+</div>
+
+</body>
+</html>

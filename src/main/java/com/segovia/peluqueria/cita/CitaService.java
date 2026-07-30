@@ -86,25 +86,23 @@ public class CitaService {
                 ? citaRepository.findAll(pageable)
                 : citaRepository.findByUsuarioIdUsuario(actual.getIdUsuario(), pageable);
 
-        // Estado de pago de todas las citas de la pagina en una sola consulta (evita N+1).
-        Map<Integer, EstadoPago> estadosPago = estadosPagoDe(citas.map(Cita::getIdCita).getContent());
-        return citas.map(cita -> mapearAResponseDTO(cita, estadosPago.get(cita.getIdCita())));
+        // Pago de todas las citas de la pagina en una sola consulta (evita N+1).
+        Map<Integer, Pago> pagos = pagosDe(citas.map(Cita::getIdCita).getContent());
+        return citas.map(cita -> mapearAResponseDTO(cita, pagos.get(cita.getIdCita())));
     }
 
-    /** Mapa citaId -> estado de pago para las citas dadas (solo las que tienen pago aparecen). */
-    private Map<Integer, EstadoPago> estadosPagoDe(List<Integer> citaIds) {
+    /** Mapa citaId -> pago para las citas dadas (solo las que tienen pago aparecen). */
+    private Map<Integer, Pago> pagosDe(List<Integer> citaIds) {
         if (citaIds.isEmpty()) {
             return Map.of();
         }
         return pagoRepository.findByCitaIdCitaIn(citaIds).stream()
-                .collect(Collectors.toMap(p -> p.getCita().getIdCita(), Pago::getEstadoPago));
+                .collect(Collectors.toMap(p -> p.getCita().getIdCita(), p -> p));
     }
 
-    /** Estado de pago de una sola cita, o null si no tiene pago. */
-    private EstadoPago estadoPagoDe(Integer citaId) {
-        return pagoRepository.findByCitaIdCita(citaId)
-                .map(Pago::getEstadoPago)
-                .orElse(null);
+    /** Pago de una sola cita, o null si no tiene. */
+    private Pago pagoDe(Integer citaId) {
+        return pagoRepository.findByCitaIdCita(citaId).orElse(null);
     }
 
     @Transactional(readOnly = true)
@@ -239,7 +237,7 @@ public class CitaService {
         Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
         Cita cita = obtenerEntidadPorId(id);
         verificarAcceso(cita, actual);
-        return mapearAResponseDTO(cita, estadoPagoDe(cita.getIdCita()));
+        return mapearAResponseDTO(cita, pagoDe(cita.getIdCita()));
     }
 
     @Transactional
@@ -298,7 +296,7 @@ public class CitaService {
                     guardada.getServicio().getNombre(), guardada.getFechaHora()));
         }
 
-        return mapearAResponseDTO(guardada, estadoPagoDe(guardada.getIdCita()));
+        return mapearAResponseDTO(guardada, pagoDe(guardada.getIdCita()));
     }
 
     @Transactional
@@ -338,7 +336,12 @@ public class CitaService {
         }
     }
 
-    private CitaResponseDTO mapearAResponseDTO(Cita cita, EstadoPago estadoPago) {
+    /**
+     * @param pago el pago de la cita, o null si no tiene. Se recibe el pago entero y no solo
+     *             su estado para poder exponer tambien su id: es lo que necesitan los
+     *             clientes para pedir el recibo, y asi no cuesta una peticion por cita.
+     */
+    private CitaResponseDTO mapearAResponseDTO(Cita cita, Pago pago) {
         CitaResponseDTO dto = new CitaResponseDTO();
         dto.setIdCita(cita.getIdCita());
         dto.setFechaHora(cita.getFechaHora());
@@ -346,7 +349,8 @@ public class CitaService {
         dto.setUsuario(UsuarioResponseDTO.desde(cita.getUsuario()));
         dto.setServicio(ServicioResponseDTO.desde(cita.getServicio()));
         dto.setPeluquero(PeluqueroResponseDTO.desde(cita.getPeluquero()));
-        dto.setEstadoPago(estadoPago);
+        dto.setEstadoPago(pago != null ? pago.getEstadoPago() : null);
+        dto.setIdPago(pago != null ? pago.getIdPago() : null);
         return dto;
     }
 

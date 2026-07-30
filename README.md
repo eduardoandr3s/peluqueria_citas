@@ -24,6 +24,7 @@ Backend for a complete appointment booking and management system for a hair salo
 * **Flyway** (database migrations, V1-V10)
 * **Spring Data JPA / Hibernate** (ORM)
 * **Supabase Storage** (object storage for images, over its REST API — no S3 SDK). Optional: without credentials the app falls back to local disk
+* **openhtmltopdf + Thymeleaf** (PDF payment receipts rendered from an HTML template, reusing the engine the emails already use)
 * **Spring Security + JWT** (stateless authentication and role-based authorization)
 * **BCrypt** (one-way password hashing)
 * **Stripe API** (online payments: PaymentIntents, webhooks, refunds)
@@ -48,6 +49,7 @@ Backend for a complete appointment booking and management system for a hair salo
 * **Closed days (holidays and one-off closures):** an ADMIN can block a specific date with an optional reason (`/api/dias-bloqueados`). A blocked day returns no slots and rejects bookings and reschedules with the reason in the message. `GET /api/citas/dias-cerrados` returns every closed day in a range — the fixed closed weekdays (Sunday) and the blocked dates, unified — so clients can render them as **unselectable** instead of letting the customer pick a day with no available times. Blocking a day that still has live appointments is rejected (409) rather than silently cancelling them.
 * **Image upload (catalog photos and avatars):** a single storage port (`AlmacenFicheros`) with two implementations — **Supabase Storage** over its REST API and local disk — so the project runs with no cloud account. Uploads are validated by **magic bytes** (the first bytes of the file), never by `Content-Type` or filename, since both are set by whoever uploads; the object key is generated server-side with a UUID, so a name like `../../etc/passwd.jpg` never reaches the store. Replacing a photo **deletes the previous object** instead of leaving orphans behind. The service catalog uses a **public** bucket and avatars a **private** one read through **short-lived signed URLs**, because a profile photo is personal data. Limits: 2 MB per file (**413** if the request exceeds it, **400** if the content is not a valid JPEG/PNG/WebP) and **502** if the store does not respond.
 * **The database stores the object key, not the URL** (`servicios.imagen_clave`, `usuarios.avatar_clave`). The URL is built on read, which is why switching bucket or provider — or turning a bucket private, as avatars did — is a configuration change and not a data migration.
+* **PDF payment receipt:** `GET /api/pagos/{id}/recibo` renders a one-page receipt from a Thymeleaf template, **generated on the fly and never stored** — it can always be rebuilt from the database, so keeping it would only add quota and lifecycle to manage. Only for **collected or refunded** payments: issuing a receipt for money that never arrived would state something false, so any other status returns **409**. The document says plainly that it is a proof of payment and **not an invoice**, since it carries no tax data.
 * **Business statistics:** `GET /api/estadisticas` (ADMIN only) returns appointments by status, revenue broken down by payment method (refunds excluded, computed by payment date), top services and new customers. Defaults to the **last 30 days** when no date range is given.
 * **Email notifications:** event-driven emails (registration, booking, modification, cancellation, payment confirmation, password changes) decoupled from business logic via Spring application events (`@TransactionalEventListener(AFTER_COMMIT)`), plus a **24-hour appointment reminder** sent by a scheduler (runs hourly, injectable `Clock` for testability, `recordatorio_enviado` flag guarantees a single send).
 * **Ownership control:** a `USER` can only see, modify or delete their own appointments and data; an `ADMIN` can access everything. Unauthorized access returns `403 Forbidden`.
@@ -58,7 +60,7 @@ Backend for a complete appointment booking and management system for a hair salo
 * **Global exception handling:** `@RestControllerAdvice` with specific handlers for validation (400), not found (404), access denied (403), conflicts (409) and a generic handler (500) that never leaks internal details. Includes SLF4J logging.
 * **OpenAPI / Swagger UI documentation:** auto-generated with springdoc-openapi, available at `/swagger-ui.html` and `/v3/api-docs`.
 * **Configuration profiles:** separate `dev` and `prod` environments. Schema is managed with **Flyway migrations** (`src/main/resources/db/migration/`). Under the `prod` profile the app **refuses to start** without storage credentials rather than falling back to local disk: on an ephemeral container that failure is silent — uploads succeed and vanish on the next deploy.
-* **Test suite (245 tests):** 229 unit tests covering the business logic without Spring context or database, plus 16 integration tests with **Testcontainers** (real PostgreSQL in Docker) covering authentication, ownership rules, statistics, payments and the full Stripe webhook flow with real signature verification.
+* **Test suite (268 tests):** 246 unit tests covering the business logic without Spring context or database, plus 22 integration tests with **Testcontainers** (real PostgreSQL in Docker) covering authentication, ownership rules, statistics, payments and the full Stripe webhook flow with real signature verification.
 
 ## Project Structure
 
@@ -82,9 +84,9 @@ Each business module follows the same layout: JPA entity, controller, service, r
 
 ## Tests
 
-**245 tests** run in CI on every push (GitHub Actions).
+**268 tests** run in CI on every push (GitHub Actions).
 
-### Unit tests (229)
+### Unit tests (246)
 
 They cover all business logic without Spring context or database (a few seconds):
 
@@ -92,9 +94,10 @@ They cover all business logic without Spring context or database (a few seconds)
 |-------|-------|----------|
 | CitaServiceTest | 48 | Booking, business hours, closed days, conflicts, CRUD, ownership, availability, pagination, barber validation, auto-confirmation on payment |
 | UsuarioServiceTest | 38 | CRUD, duplicate email, hashing, soft delete, ownership, reactivation, pagination, search, avatar upload/removal |
-| PagoServiceTest | 25 | PaymentIntents, webhooks, manual payment, refunds, polling, concurrency |
+| PagoServiceTest | 32 | PaymentIntents, webhooks, manual payment, refunds, polling, concurrency, who may request a receipt and in which payment states |
 | CalendarioServiceTest | 17 | Closed weekdays, blocking/unblocking dates, past dates, duplicates, days with live appointments, closed-day ranges |
 | ServicioServiceTest | 16 | CRUD, soft delete, catalog photo upload/replacement/removal |
+| ReciboPdfGeneradorTest | 10 | Renders the **real PDF** with the production template and reads the text back with PDFBox: payment and appointment data, refund notice, "not an invoice" disclaimer, fixed decimal format |
 | ValidadorImagenTest | 10 | Magic-byte validation: real JPEG/PNG/WebP, lying `Content-Type`, lying extension, oversized and empty files, server-generated key |
 | JwtServiceTest | 9 | Token generation/extraction/validation, signatures, tokenVersion |
 | AuthControllerTest | 8 | Login, registration, invalid credentials |
@@ -115,13 +118,13 @@ They cover all business logic without Spring context or database (a few seconds)
 ./mvnw test -Dtest='!*IntegrationTest'
 ```
 
-### Integration tests (16, Testcontainers)
+### Integration tests (22, Testcontainers)
 
 They boot the full application against a **real PostgreSQL** started in Docker (`@ServiceConnection`), with Flyway migrations applied:
 
 * **EstadisticasIntegrationTest** (5) — statistics over real data: default 30-day range, revenue by payment method, refunds excluded.
 * **WebhookIntegrationTest** (4) — end-to-end Stripe webhook: a signed `payment_intent.succeeded` event is verified with the **real Stripe SDK signature check**, the payment becomes `PAGADO` and the appointment is confirmed; duplicated events are processed only once (idempotency); invalid signatures get 400.
-* **PagosIntegrationTest** (4) — payment listing for the dashboard: pagination, range and status filters, ADMIN only.
+* **PagosIntegrationTest** (10) — payment listing for the dashboard (pagination, range and status filters, ADMIN only) and the PDF receipt over HTTP: the owner gets a real PDF as an attachment, an ADMIN gets anyone's, someone else gets 403, an uncollected payment 409.
 * **OwnershipIntegrationTest** (2) — a user cannot read (GET) or edit (PUT) someone else's appointment (403); `/api/usuarios/me` never exposes the password.
 * **AuthIntegrationTest** (1) — full register/login flow over HTTP.
 
@@ -207,6 +210,7 @@ They boot the full application against a **real PostgreSQL** started in Docker (
 | POST | `/api/pagos/manual` | ADMIN | Register a cash or bank-transfer payment |
 | POST | `/api/pagos/{citaId}/reembolsar` | ADMIN | Refund a payment (Stripe or manual) |
 | GET | `/api/pagos` | ADMIN | List payments (paginated). Optional `?desde=&hasta=&estado=&metodo=`; the range is inclusive on both ends and filters by payment date, falling back to creation date |
+| GET | `/api/pagos/{id}/recibo` | Own/ADMIN | Download the PDF receipt (`attachment`). **The id is the payment's, not the appointment's.** 409 unless the payment is `PAGADO` or `REEMBOLSADO` |
 | GET | `/api/pagos/cita/{citaId}` | Own/ADMIN | Get the payment of an appointment |
 
 > The listing filters on `COALESCE(fechaPago, fechaCreacion)`, so `?estado=PAGADO` over a range returns exactly the payments that add up to the revenue `/api/estadisticas` reports for that same period — which is what makes the dashboard's revenue bars drillable.

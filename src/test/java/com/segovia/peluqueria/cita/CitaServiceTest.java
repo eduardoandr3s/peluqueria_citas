@@ -510,6 +510,7 @@ class CitaServiceTest {
 
         // c1 tiene un pago PAGADO; c2 no tiene pago -> estadoPago null.
         Pago pagoC1 = new Pago();
+        pagoC1.setIdPago(77);
         pagoC1.setCita(c1);
         pagoC1.setEstadoPago(EstadoPago.PAGADO);
 
@@ -520,6 +521,10 @@ class CitaServiceTest {
 
         assertEquals(EstadoPago.PAGADO, citas.get(0).getEstadoPago());
         assertNull(citas.get(1).getEstadoPago());
+        // El id del pago viaja con la cita: es lo que permite pedir el recibo desde el
+        // listado sin una peticion por cita.
+        assertEquals(77, citas.get(0).getIdPago());
+        assertNull(citas.get(1).getIdPago());
         // Una sola consulta batch, sin N+1 por cita.
         verify(pagoRepository).findByCitaIdCitaIn(List.of(1, 2));
         verify(pagoRepository, never()).findByCitaIdCita(any());

@@ -81,6 +81,17 @@ public class GlobalExceptionHandler {
         return error;
     }
 
+    // Captura operaciones que la peticion pide bien pero el estado del recurso no permite
+    // (p. ej. pedir el recibo de un pago que aun no esta cobrado)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    @ExceptionHandler(EstadoInvalidoException.class)
+    public Map<String, String> manejarEstadoInvalido(EstadoInvalidoException ex) {
+        log.warn("Estado no valido para la operacion: {}", ex.getMessage());
+        Map<String, String> error = new HashMap<>();
+        error.put("error", ex.getMessage());
+        return error;
+    }
+
     // Captura errores de validacion de logica de negocio (fecha pasada, horario fuera de rango, etc.)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     @ExceptionHandler(IllegalArgumentException.class)

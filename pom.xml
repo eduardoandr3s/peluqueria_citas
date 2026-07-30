@@ -82,6 +82,16 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-thymeleaf</artifactId>
 		</dependency>
+		<!-- Recibo en PDF: se renderiza una plantilla Thymeleaf a PDF, reutilizando el
+		     motor que ya usan los correos en vez de maquetar el documento en codigo.
+		     Ojo con el groupId: el historico com.openhtmltopdf se quedo en la 1.0.10,
+		     el proyecto vivo publica en io.github.openhtmltopdf. La licencia es LGPL,
+		     no AGPL como iText 7, que es lo que importa en un repo publico. -->
+		<dependency>
+			<groupId>io.github.openhtmltopdf</groupId>
+			<artifactId>openhtmltopdf-pdfbox</artifactId>
+			<version>1.1.65</version>
+		</dependency>
 		<!-- Rate limiting (token bucket en memoria) para los endpoints publicos de
 		     recuperacion de contrasena. Verificar resolucion de la version al compilar. -->
 		<dependency>

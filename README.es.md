@@ -24,6 +24,7 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 * **Flyway** (migraciones de esquema, V1-V10)
 * **Spring Data JPA / Hibernate** (ORM)
 * **Supabase Storage** (almacenamiento de objetos para imágenes, por su API REST — sin SDK de S3). Opcional: sin credenciales se usa el disco local
+* **openhtmltopdf + Thymeleaf** (recibos de pago en PDF renderizados desde una plantilla HTML, reutilizando el motor que ya usan los correos)
 * **Spring Security + JWT** (autenticación stateless y autorización por roles)
 * **BCrypt** (hash unidireccional de contraseñas)
 * **Stripe API** (pagos online: PaymentIntents, webhooks, reembolsos)
@@ -48,6 +49,7 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 * **Días cerrados (festivos y cierres puntuales):** un ADMIN puede bloquear una fecha concreta con un motivo opcional (`/api/dias-bloqueados`). Un día bloqueado no devuelve horas libres y rechaza agendar y reprogramar indicando el motivo. `GET /api/citas/dias-cerrados` devuelve todos los días cerrados de un rango —los días de la semana fijos (domingo) y las fechas bloqueadas, unificados— para que los clientes los pinten **no seleccionables** en vez de dejar elegir un día sin horas disponibles. Bloquear un día que aún tiene citas vivas se rechaza (409) en vez de anularlas por sorpresa.
 * **Subida de imágenes (fotos de catálogo y avatares):** un único puerto de almacén (`AlmacenFicheros`) con dos implementaciones —**Supabase Storage** por su API REST y disco local—, así que el proyecto arranca sin cuenta en ningún servicio. Lo que se sube se valida por **magic bytes** (los primeros bytes del fichero), nunca por el `Content-Type` ni el nombre, porque los dos los pone quien sube; la clave del objeto la genera el servidor con un UUID, así que un nombre tipo `../../etc/passwd.jpg` no llega al almacén. Sustituir una foto **borra el objeto anterior** en vez de dejar huérfanos comiendo cuota. El catálogo de servicios usa un bucket **público** y los avatares uno **privado** que se lee con **URL firmada de vida corta**, porque una foto de perfil es un dato personal. Límites: 2 MB por fichero (**413** si la petición se pasa, **400** si el contenido no es un JPEG/PNG/WebP válido) y **502** si el almacén no responde.
 * **En la base de datos va la clave del objeto, no la URL** (`servicios.imagen_clave`, `usuarios.avatar_clave`). La URL se construye al leer, y por eso cambiar de bucket o de proveedor —o pasar un bucket a privado, que es justo lo que hacen los avatares— es configuración y no una migración de datos.
+* **Recibo de pago en PDF:** `GET /api/pagos/{id}/recibo` renderiza un justificante de una página desde una plantilla Thymeleaf, **generado al vuelo y sin almacenarse** — siempre se puede reconstruir desde la base de datos, así que guardarlo solo añadiría cuota y ciclo de vida que gestionar. Solo para pagos **cobrados o reembolsados**: emitir un recibo por dinero que no ha entrado afirmaría algo falso, así que cualquier otro estado responde **409**. El documento dice con claridad que es un justificante de pago y **no una factura**, porque no lleva datos fiscales.
 * **Estadísticas de negocio:** `GET /api/estadisticas` (solo ADMIN) devuelve citas por estado, ingresos desglosados por método de pago (excluyendo reembolsos, calculados por fecha de pago), servicios más demandados y clientes nuevos. Por defecto usa los **últimos 30 días** si no se indica rango.
 * **Notificaciones por correo:** emails dirigidos por eventos (registro, cita agendada, modificada, anulada, pago confirmado, cambios de contraseña) desacoplados de la lógica de negocio mediante eventos de Spring (`@TransactionalEventListener(AFTER_COMMIT)`), más un **recordatorio de cita 24h antes** enviado por un scheduler (corre cada hora, `Clock` inyectable para testabilidad, el flag `recordatorio_enviado` garantiza un único envío).
 * **Control de propiedad (ownership):** un `USER` solo puede ver, modificar o eliminar sus propias citas y sus propios datos; un `ADMIN` puede acceder a todo. Los accesos no autorizados devuelven `403 Forbidden`.
@@ -58,7 +60,7 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 * **Manejo global de excepciones:** `@RestControllerAdvice` con handlers específicos para validación (400), no encontrado (404), acceso denegado (403), conflictos (409) y un handler genérico (500) que no expone detalles internos. Incluye logging con SLF4J.
 * **Documentación OpenAPI / Swagger UI:** generada automáticamente con springdoc-openapi, disponible en `/swagger-ui.html` y `/v3/api-docs`.
 * **Perfiles de configuración:** entornos `dev` y `prod` separados. El esquema se gestiona con **migraciones Flyway** (`src/main/resources/db/migration/`). Con el perfil `prod` la aplicación **se niega a arrancar** sin credenciales de almacén en vez de caer al disco local: en un contenedor efímero ese fallo es silencioso —las subidas funcionan y desaparecen en el siguiente despliegue—.
-* **Suite de tests (245 tests):** 229 tests unitarios que cubren la lógica de negocio sin Spring context ni base de datos, más 16 tests de integración con **Testcontainers** (PostgreSQL real en Docker) que cubren autenticación, reglas de ownership, estadísticas, pagos y el flujo completo del webhook de Stripe con verificación de firma real.
+* **Suite de tests (268 tests):** 246 tests unitarios que cubren la lógica de negocio sin Spring context ni base de datos, más 22 tests de integración con **Testcontainers** (PostgreSQL real en Docker) que cubren autenticación, reglas de ownership, estadísticas, pagos y el flujo completo del webhook de Stripe con verificación de firma real.
 
 ## Estructura del proyecto
 
@@ -82,9 +84,9 @@ Todos los módulos de negocio siguen el mismo esquema: entidad JPA, controller, 
 
 ## Tests
 
-**245 tests** se ejecutan en CI en cada push (GitHub Actions).
+**268 tests** se ejecutan en CI en cada push (GitHub Actions).
 
-### Tests unitarios (229)
+### Tests unitarios (246)
 
 Cubren toda la lógica de negocio sin Spring context ni base de datos (pocos segundos):
 
@@ -92,9 +94,10 @@ Cubren toda la lógica de negocio sin Spring context ni base de datos (pocos seg
 |-------|-------|-----------|
 | CitaServiceTest | 48 | Agendar, horario laboral, días cerrados, conflictos, CRUD, ownership, disponibilidad, paginación, validación de peluquero, auto-confirmación al pagar |
 | UsuarioServiceTest | 38 | CRUD, email duplicado, hashing, soft delete, ownership, reactivar, paginación, búsqueda, subir/borrar avatar |
-| PagoServiceTest | 25 | PaymentIntents, webhooks, pago manual, reembolsos, polling, concurrencia |
+| PagoServiceTest | 32 | PaymentIntents, webhooks, pago manual, reembolsos, polling, concurrencia, quién puede pedir un recibo y en qué estados |
 | CalendarioServiceTest | 17 | Días de la semana cerrados, bloquear/desbloquear fechas, fecha pasada, duplicados, días con citas vivas, rangos de días cerrados |
 | ServicioServiceTest | 16 | CRUD, soft delete, subir/sustituir/borrar la foto de catálogo |
+| ReciboPdfGeneradorTest | 10 | Renderiza el **PDF de verdad** con la plantilla de producción y le vuelve a extraer el texto con PDFBox: datos del pago y de la cita, aviso de reembolso, la advertencia de que no es una factura, formato de decimales fijo |
 | ValidadorImagenTest | 10 | Validación por magic bytes: JPEG/PNG/WebP reales, `Content-Type` que miente, extensión que miente, fichero vacío y fuera de tamaño, clave generada por el servidor |
 | JwtServiceTest | 9 | Generar/extraer/validar tokens, firmas, tokenVersion |
 | AuthControllerTest | 8 | Login, registro, credenciales inválidas |
@@ -115,13 +118,13 @@ Cubren toda la lógica de negocio sin Spring context ni base de datos (pocos seg
 ./mvnw test -Dtest='!*IntegrationTest'
 ```
 
-### Tests de integración (16, Testcontainers)
+### Tests de integración (22, Testcontainers)
 
 Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Docker (`@ServiceConnection`), con las migraciones Flyway aplicadas:
 
 * **EstadisticasIntegrationTest** (5) — estadísticas sobre datos reales: rango por defecto de 30 días, ingresos por método de pago, reembolsos excluidos.
 * **WebhookIntegrationTest** (4) — webhook de Stripe end-to-end: un evento `payment_intent.succeeded` firmado se verifica con la **comprobación de firma real del SDK de Stripe**, el pago pasa a `PAGADO` y la cita se confirma; los eventos duplicados se procesan una sola vez (idempotencia); las firmas inválidas reciben 400.
-* **PagosIntegrationTest** (4) — listado de pagos del panel: paginación, filtros de rango y estado, solo ADMIN.
+* **PagosIntegrationTest** (10) — listado de pagos del panel (paginación, filtros de rango y estado, solo ADMIN) y el recibo en PDF por HTTP: el dueño recibe un PDF de verdad como adjunto, un ADMIN el de cualquiera, otro cliente 403 y un pago no cobrado 409.
 * **OwnershipIntegrationTest** (2) — un usuario no puede leer (GET) ni editar (PUT) la cita de otro (403); `/api/usuarios/me` nunca expone la contraseña.
 * **AuthIntegrationTest** (1) — flujo completo de registro/login por HTTP.
 
@@ -207,6 +210,7 @@ Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Dock
 | POST | `/api/pagos/manual` | ADMIN | Registrar pago en efectivo o transferencia |
 | POST | `/api/pagos/{citaId}/reembolsar` | ADMIN | Reembolsar un pago (Stripe o manual) |
 | GET | `/api/pagos` | ADMIN | Listar pagos (paginado). Opcional `?desde=&hasta=&estado=&metodo=`; el rango incluye los dos extremos y filtra por fecha de pago, con la de creación como respaldo |
+| GET | `/api/pagos/{id}/recibo` | Propio/ADMIN | Descargar el recibo en PDF (`attachment`). **El id es del pago, no de la cita.** 409 si el pago no está `PAGADO` ni `REEMBOLSADO` |
 | GET | `/api/pagos/cita/{citaId}` | Propio/ADMIN | Consultar el pago de una cita |
 
 > El listado filtra por `COALESCE(fechaPago, fechaCreacion)`, de modo que `?estado=PAGADO` sobre un rango devuelve exactamente los pagos que suman los ingresos que `/api/estadisticas` reporta para ese mismo periodo — que es lo que permite desglosar las barras de ingresos del dashboard.

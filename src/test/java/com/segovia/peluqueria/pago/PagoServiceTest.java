@@ -3,6 +3,7 @@ package com.segovia.peluqueria.pago;
 import com.segovia.peluqueria.cita.Cita;
 import com.segovia.peluqueria.cita.CitaRepository;
 import com.segovia.peluqueria.cita.EstadoCita;
+import com.segovia.peluqueria.exception.EstadoInvalidoException;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.notificacion.evento.PagoConfirmadoEvent;
 import com.segovia.peluqueria.pago.PaymentGateway.EventoPasarela;
@@ -49,6 +50,7 @@ class PagoServiceTest {
     private StripeEventoRepository stripeEventoRepository;
     private PaymentGateway paymentGateway;
     private ApplicationEventPublisher eventPublisher;
+    private ReciboPdfGenerador reciboPdfGenerador;
     private PagoService pagoService;
 
     @BeforeEach
@@ -59,8 +61,11 @@ class PagoServiceTest {
         stripeEventoRepository = mock(StripeEventoRepository.class);
         paymentGateway = mock(PaymentGateway.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
+        // El generador va mockeado: aqui se prueba quien puede pedir un recibo y cuando, no
+        // como sale el PDF. De eso se encarga ReciboPdfGeneradorTest, que si lo renderiza.
+        reciboPdfGenerador = mock(ReciboPdfGenerador.class);
         pagoService = new PagoService(pagoRepository, citaRepository, usuarioRepository,
-                stripeEventoRepository, paymentGateway, eventPublisher);
+                stripeEventoRepository, paymentGateway, eventPublisher, reciboPdfGenerador);
 
         Usuario admin = new Usuario();
         admin.setIdUsuario(99);
@@ -486,5 +491,93 @@ class PagoServiceTest {
         assertThrows(IllegalArgumentException.class,
                 () -> pagoService.listarPagos(desde, hasta, null, null, PageRequest.of(0, 20)));
         verify(pagoRepository, never()).findAll(ArgumentMatchers.<Specification<Pago>>any(), any(Pageable.class));
+    }
+
+    // ---------- generarRecibo ----------
+
+    /** Pago cobrado, listo para pedirle el recibo, y su cliente registrado en el mock. */
+    private Pago prepararPagoCobrado() {
+        Cita cita = crearCitaPendiente();
+        Pago pago = crearPagoPendiente(cita);
+        pago.setEstadoPago(EstadoPago.PAGADO);
+        pago.setFechaPago(LocalDateTime.now());
+        when(usuarioRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cita.getUsuario()));
+        when(pagoRepository.findById(10)).thenReturn(Optional.of(pago));
+        return pago;
+    }
+
+    @Test
+    void generarRecibo_elDuenoLoDescarga() {
+        Pago pago = prepararPagoCobrado();
+        when(reciboPdfGenerador.generar(pago)).thenReturn(new byte[] { 1, 2, 3 });
+        when(reciboPdfGenerador.nombreFichero(pago)).thenReturn("recibo-10.pdf");
+
+        var recibo = pagoService.generarRecibo(10, EMAIL_CLIENTE);
+
+        assertArrayEquals(new byte[] { 1, 2, 3 }, recibo.contenido());
+        assertEquals("recibo-10.pdf", recibo.nombreFichero());
+    }
+
+    @Test
+    void generarRecibo_unAdminDescargaElDeCualquiera() {
+        Pago pago = prepararPagoCobrado();
+        when(reciboPdfGenerador.generar(pago)).thenReturn(new byte[] { 1 });
+
+        assertDoesNotThrow(() -> pagoService.generarRecibo(10, EMAIL_ADMIN));
+    }
+
+    @Test
+    void generarRecibo_deOtroCliente_devuelve403() {
+        prepararPagoCobrado();
+        Usuario otro = new Usuario();
+        otro.setIdUsuario(2);
+        otro.setEmail(EMAIL_OTRO);
+        otro.setRol(Rol.USER);
+        otro.setActivo(true);
+        when(usuarioRepository.findByEmail(EMAIL_OTRO)).thenReturn(Optional.of(otro));
+
+        assertThrows(AccessDeniedException.class, () -> pagoService.generarRecibo(10, EMAIL_OTRO));
+        // Ni siquiera se llega a generar: el PDF llevaria datos de otro cliente.
+        verify(reciboPdfGenerador, never()).generar(any());
+    }
+
+    @Test
+    void generarRecibo_pagoInexistente_devuelve404() {
+        when(usuarioRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(crearCliente()));
+        when(pagoRepository.findById(999)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> pagoService.generarRecibo(999, EMAIL_CLIENTE));
+    }
+
+    @Test
+    void generarRecibo_pagoReembolsado_siTieneRecibo() {
+        Pago pago = prepararPagoCobrado();
+        pago.setEstadoPago(EstadoPago.REEMBOLSADO);
+        when(reciboPdfGenerador.generar(pago)).thenReturn(new byte[] { 1 });
+
+        assertDoesNotThrow(() -> pagoService.generarRecibo(10, EMAIL_CLIENTE));
+    }
+
+    @Test
+    void generarRecibo_pagoPendiente_devuelve409() {
+        Cita cita = crearCitaPendiente();
+        Pago pago = crearPagoPendiente(cita);
+        when(usuarioRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cita.getUsuario()));
+        when(pagoRepository.findById(10)).thenReturn(Optional.of(pago));
+
+        // Un justificante de un pago que no ha entrado afirmaria algo falso.
+        assertThrows(EstadoInvalidoException.class, () -> pagoService.generarRecibo(10, EMAIL_CLIENTE));
+        verify(reciboPdfGenerador, never()).generar(any());
+    }
+
+    @Test
+    void generarRecibo_pagoCancelado_devuelve409() {
+        Cita cita = crearCitaPendiente();
+        Pago pago = crearPagoPendiente(cita);
+        pago.setEstadoPago(EstadoPago.CANCELADO);
+        when(usuarioRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cita.getUsuario()));
+        when(pagoRepository.findById(10)).thenReturn(Optional.of(pago));
+
+        assertThrows(EstadoInvalidoException.class, () -> pagoService.generarRecibo(10, EMAIL_CLIENTE));
     }
 }

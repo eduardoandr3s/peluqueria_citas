@@ -10,6 +10,9 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -63,6 +66,28 @@ public class PagoController {
                 // pasa el comienzo del dia siguiente para no dejar fuera los pagos de ese dia.
                 hasta != null ? hasta.plusDays(1).atStartOfDay() : null,
                 estado, metodo, pageable);
+    }
+
+    /**
+     * Recibo en PDF del pago. Lo puede descargar el dueno de la cita o un ADMIN, y solo
+     * existe para pagos cobrados o reembolsados (ver {@code PagoService.generarRecibo}).
+     *
+     * <p>Se sirve como {@code attachment}: el navegador lo descarga en vez de abrirlo, que
+     * es lo que se espera de un justificante.
+     */
+    @GetMapping(path = "/{id}/recibo", produces = MediaType.APPLICATION_PDF_VALUE)
+    public ResponseEntity<byte[]> descargarRecibo(@PathVariable Integer id,
+                                                  Authentication authentication) {
+        PagoService.Recibo recibo = pagoService.generarRecibo(id, authentication.getName());
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                // Con ContentDisposition en vez de la cabecera a mano: escapa el nombre el.
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment()
+                                .filename(recibo.nombreFichero())
+                                .build()
+                                .toString())
+                .body(recibo.contenido());
     }
 
     @GetMapping("/cita/{citaId}")

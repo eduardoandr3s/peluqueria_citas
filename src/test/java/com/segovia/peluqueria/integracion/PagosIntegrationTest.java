@@ -22,6 +22,9 @@ class PagosIntegrationTest extends AbstractIntegrationTest {
 
     private String tokenAdmin;
     private String tokenCliente;
+    private String tokenAjeno;
+    private Integer pagoCobradoId;
+    private Integer pagoPendienteId;
 
     @BeforeEach
     void setUp() {
@@ -59,14 +62,25 @@ class PagosIntegrationTest extends AbstractIntegrationTest {
                         + "VALUES ('Corte PAGOS', 30, 30, true) RETURNING id_servicio", Integer.class);
 
         // Marzo 2020: dos pagos cobrados (tarjeta y efectivo) y uno aun pendiente.
-        insertarPago(usuarioId, servicioId, "2020-03-10T10:00:00", "30.00", "TARJETA", "PAGADO",
-                "2020-03-10T11:00:00");
+        pagoCobradoId = insertarPago(usuarioId, servicioId, "2020-03-10T10:00:00", "30.00", "TARJETA",
+                "PAGADO", "2020-03-10T11:00:00");
         insertarPago(usuarioId, servicioId, "2020-03-11T10:00:00", "20.00", "EFECTIVO", "PAGADO",
                 "2020-03-11T11:00:00");
-        insertarPago(usuarioId, servicioId, "2020-03-12T10:00:00", "50.00", "TARJETA", "PENDIENTE", null);
+        pagoPendienteId = insertarPago(usuarioId, servicioId, "2020-03-12T10:00:00", "50.00", "TARJETA",
+                "PENDIENTE", null);
         // Abril 2020: fuera del rango que piden los tests.
         insertarPago(usuarioId, servicioId, "2020-04-05T10:00:00", "99.00", "TARJETA", "PAGADO",
                 "2020-04-05T11:00:00");
+
+        // Un segundo cliente, sin ningun pago propio: sirve para comprobar que no puede
+        // descargarse el recibo del primero.
+        String emailAjeno = "pagos_ajeno@test.com";
+        String passAjeno = "Pass1234!";
+        rest.postForEntity(url("/api/auth/registro"),
+                Map.of("nombre", "Ajeno PAGOS", "email", emailAjeno, "password", passAjeno,
+                        "telefono", "600000032"), Map.class);
+        tokenAjeno = (String) rest.postForEntity(url("/api/auth/login"),
+                Map.of("email", emailAjeno, "password", passAjeno), Map.class).getBody().get("token");
     }
 
     @Test
@@ -133,16 +147,75 @@ class PagosIntegrationTest extends AbstractIntegrationTest {
                 "El listado completo de pagos es solo para ADMIN");
     }
 
-    private void insertarPago(Integer usuarioId, Integer servicioId, String fechaCita, String monto,
-                              String metodo, String estado, String fechaPago) {
+    // ---------- recibo en PDF ----------
+
+    private ResponseEntity<byte[]> pedirRecibo(Integer idPago, String token) {
+        var headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        return rest.exchange(url("/api/pagos/" + idPago + "/recibo"),
+                HttpMethod.GET, new HttpEntity<>(headers), byte[].class);
+    }
+
+    @Test
+    void recibo_elDuenoDescargaUnPdfDeVerdad() {
+        ResponseEntity<byte[]> resp = pedirRecibo(pagoCobradoId, tokenCliente);
+
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        assertEquals(MediaType.APPLICATION_PDF, resp.getHeaders().getContentType());
+        assertNotNull(resp.getBody());
+        // No basta con el 200: se comprueba que lo que llega es un PDF por su firma.
+        assertEquals("%PDF-", new String(resp.getBody(), 0, 5));
+        // Y que se descarga en vez de abrirse en el navegador.
+        String disposicion = resp.getHeaders().getFirst(HttpHeaders.CONTENT_DISPOSITION);
+        assertNotNull(disposicion);
+        assertTrue(disposicion.startsWith("attachment"), disposicion);
+        assertTrue(disposicion.contains("recibo-" + pagoCobradoId + ".pdf"), disposicion);
+    }
+
+    @Test
+    void recibo_unAdminDescargaElDeCualquierCliente() {
+        assertEquals(HttpStatus.OK, pedirRecibo(pagoCobradoId, tokenAdmin).getStatusCode());
+    }
+
+    @Test
+    void recibo_deOtroClienteDevuelve403() {
+        assertEquals(HttpStatus.FORBIDDEN, pedirRecibo(pagoCobradoId, tokenAjeno).getStatusCode(),
+                "El recibo lleva nombre y correo del cliente: nadie mas debe poder pedirlo");
+    }
+
+    @Test
+    void recibo_dePagoPendienteDevuelve409() {
+        assertEquals(HttpStatus.CONFLICT, pedirRecibo(pagoPendienteId, tokenCliente).getStatusCode(),
+                "Un justificante de un pago que no ha entrado afirmaria algo falso");
+    }
+
+    @Test
+    void recibo_dePagoInexistenteDevuelve404() {
+        assertEquals(HttpStatus.NOT_FOUND, pedirRecibo(999999, tokenCliente).getStatusCode());
+    }
+
+    @Test
+    void recibo_sinTokenDevuelve401o403() {
+        ResponseEntity<String> resp = rest.exchange(url("/api/pagos/" + pagoCobradoId + "/recibo"),
+                HttpMethod.GET, HttpEntity.EMPTY, String.class);
+
+        assertTrue(resp.getStatusCode() == HttpStatus.UNAUTHORIZED
+                        || resp.getStatusCode() == HttpStatus.FORBIDDEN,
+                "Sin autenticar no se sirve: " + resp.getStatusCode());
+    }
+
+    /** @return el id del pago insertado, que los tests del recibo necesitan */
+    private Integer insertarPago(Integer usuarioId, Integer servicioId, String fechaCita, String monto,
+                                 String metodo, String estado, String fechaPago) {
         Integer citaId = jdbcTemplate.queryForObject(
                 "INSERT INTO citas (usuario_id, servicio_id, fecha_hora, estado) "
                         + "VALUES (?, ?, CAST(? AS TIMESTAMP), 'CONFIRMADA') RETURNING id_cita",
                 Integer.class, usuarioId, servicioId, fechaCita);
-        jdbcTemplate.update(
+        return jdbcTemplate.queryForObject(
                 "INSERT INTO pagos (cita_id, monto, metodo_pago, estado_pago, fecha_creacion, fecha_pago) "
-                        + "VALUES (?, CAST(? AS NUMERIC), ?, ?, CAST(? AS TIMESTAMP), CAST(? AS TIMESTAMP))",
-                citaId, monto, metodo, estado, fechaCita, fechaPago);
+                        + "VALUES (?, CAST(? AS NUMERIC), ?, ?, CAST(? AS TIMESTAMP), CAST(? AS TIMESTAMP)) "
+                        + "RETURNING id_pago",
+                Integer.class, citaId, monto, metodo, estado, fechaCita, fechaPago);
     }
 
     private String url(String path) {
