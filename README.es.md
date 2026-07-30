@@ -21,8 +21,9 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 * **Java 21 (Temurin LTS)**
 * **Spring Boot 4.0.3** (framework principal)
 * **PostgreSQL** (base de datos relacional)
-* **Flyway** (migraciones de esquema, V1-V8)
+* **Flyway** (migraciones de esquema, V1-V10)
 * **Spring Data JPA / Hibernate** (ORM)
+* **Supabase Storage** (almacenamiento de objetos para imágenes, por su API REST — sin SDK de S3). Opcional: sin credenciales se usa el disco local
 * **Spring Security + JWT** (autenticación stateless y autorización por roles)
 * **BCrypt** (hash unidireccional de contraseñas)
 * **Stripe API** (pagos online: PaymentIntents, webhooks, reembolsos)
@@ -45,6 +46,8 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 * **Validación de conflictos de horario:** se rechazan citas que se solapen, usando la duración del servicio para calcular cada rango.
 * **Validación de horario laboral:** las citas solo se pueden agendar de lunes a sábado de 9:00 a 20:00, y nunca en el pasado. El horario y los días de la semana cerrados son **configurables** vía properties (`peluqueria.horario.apertura` / `peluqueria.horario.cierre` / `peluqueria.horario.dias-cerrados`).
 * **Días cerrados (festivos y cierres puntuales):** un ADMIN puede bloquear una fecha concreta con un motivo opcional (`/api/dias-bloqueados`). Un día bloqueado no devuelve horas libres y rechaza agendar y reprogramar indicando el motivo. `GET /api/citas/dias-cerrados` devuelve todos los días cerrados de un rango —los días de la semana fijos (domingo) y las fechas bloqueadas, unificados— para que los clientes los pinten **no seleccionables** en vez de dejar elegir un día sin horas disponibles. Bloquear un día que aún tiene citas vivas se rechaza (409) en vez de anularlas por sorpresa.
+* **Subida de imágenes (fotos de catálogo y avatares):** un único puerto de almacén (`AlmacenFicheros`) con dos implementaciones —**Supabase Storage** por su API REST y disco local—, así que el proyecto arranca sin cuenta en ningún servicio. Lo que se sube se valida por **magic bytes** (los primeros bytes del fichero), nunca por el `Content-Type` ni el nombre, porque los dos los pone quien sube; la clave del objeto la genera el servidor con un UUID, así que un nombre tipo `../../etc/passwd.jpg` no llega al almacén. Sustituir una foto **borra el objeto anterior** en vez de dejar huérfanos comiendo cuota. El catálogo de servicios usa un bucket **público** y los avatares uno **privado** que se lee con **URL firmada de vida corta**, porque una foto de perfil es un dato personal. Límites: 2 MB por fichero (**413** si la petición se pasa, **400** si el contenido no es un JPEG/PNG/WebP válido) y **502** si el almacén no responde.
+* **En la base de datos va la clave del objeto, no la URL** (`servicios.imagen_clave`, `usuarios.avatar_clave`). La URL se construye al leer, y por eso cambiar de bucket o de proveedor —o pasar un bucket a privado, que es justo lo que hacen los avatares— es configuración y no una migración de datos.
 * **Estadísticas de negocio:** `GET /api/estadisticas` (solo ADMIN) devuelve citas por estado, ingresos desglosados por método de pago (excluyendo reembolsos, calculados por fecha de pago), servicios más demandados y clientes nuevos. Por defecto usa los **últimos 30 días** si no se indica rango.
 * **Notificaciones por correo:** emails dirigidos por eventos (registro, cita agendada, modificada, anulada, pago confirmado, cambios de contraseña) desacoplados de la lógica de negocio mediante eventos de Spring (`@TransactionalEventListener(AFTER_COMMIT)`), más un **recordatorio de cita 24h antes** enviado por un scheduler (corre cada hora, `Clock` inyectable para testabilidad, el flag `recordatorio_enviado` garantiza un único envío).
 * **Control de propiedad (ownership):** un `USER` solo puede ver, modificar o eliminar sus propias citas y sus propios datos; un `ADMIN` puede acceder a todo. Los accesos no autorizados devuelven `403 Forbidden`.
@@ -54,13 +57,14 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 * **Búsqueda de usuarios:** `GET /api/usuarios?search=` filtra por nombre o email (contains, case-insensitive) en la BD, combinable con `incluirInactivos` y la paginación.
 * **Manejo global de excepciones:** `@RestControllerAdvice` con handlers específicos para validación (400), no encontrado (404), acceso denegado (403), conflictos (409) y un handler genérico (500) que no expone detalles internos. Incluye logging con SLF4J.
 * **Documentación OpenAPI / Swagger UI:** generada automáticamente con springdoc-openapi, disponible en `/swagger-ui.html` y `/v3/api-docs`.
-* **Perfiles de configuración:** entornos `dev` y `prod` separados. El esquema se gestiona con **migraciones Flyway** (`src/main/resources/db/migration/`).
-* **Suite de tests (196 tests):** 186 tests unitarios que cubren la lógica de negocio sin Spring context ni base de datos, más 10 tests de integración con **Testcontainers** (PostgreSQL real en Docker) que cubren autenticación, reglas de ownership, estadísticas y el flujo completo del webhook de Stripe con verificación de firma real.
+* **Perfiles de configuración:** entornos `dev` y `prod` separados. El esquema se gestiona con **migraciones Flyway** (`src/main/resources/db/migration/`). Con el perfil `prod` la aplicación **se niega a arrancar** sin credenciales de almacén en vez de caer al disco local: en un contenedor efímero ese fallo es silencioso —las subidas funcionan y desaparecen en el siguiente despliegue—.
+* **Suite de tests (245 tests):** 229 tests unitarios que cubren la lógica de negocio sin Spring context ni base de datos, más 16 tests de integración con **Testcontainers** (PostgreSQL real en Docker) que cubren autenticación, reglas de ownership, estadísticas, pagos y el flujo completo del webhook de Stripe con verificación de firma real.
 
 ## Estructura del proyecto
 
 ```
 com.segovia.peluqueria/
+├── almacen/        # Almacén de ficheros: puerto + adaptadores Supabase/disco, validación por magic bytes
 ├── auth/           # Login, registro, refresh tokens, reset de contraseña (con rate limit)
 ├── cita/           # Citas: agendado, conflictos, slots de disponibilidad, horario laboral
 ├── config/         # Configuración transversal (eventos asíncronos, scheduling)
@@ -78,43 +82,50 @@ Todos los módulos de negocio siguen el mismo esquema: entidad JPA, controller, 
 
 ## Tests
 
-**196 tests** se ejecutan en CI en cada push (GitHub Actions).
+**245 tests** se ejecutan en CI en cada push (GitHub Actions).
 
-### Tests unitarios (186)
+### Tests unitarios (229)
 
 Cubren toda la lógica de negocio sin Spring context ni base de datos (pocos segundos):
 
 | Clase | Tests | Cobertura |
 |-------|-------|-----------|
 | CitaServiceTest | 48 | Agendar, horario laboral, días cerrados, conflictos, CRUD, ownership, disponibilidad, paginación, validación de peluquero, auto-confirmación al pagar |
+| UsuarioServiceTest | 38 | CRUD, email duplicado, hashing, soft delete, ownership, reactivar, paginación, búsqueda, subir/borrar avatar |
+| PagoServiceTest | 25 | PaymentIntents, webhooks, pago manual, reembolsos, polling, concurrencia |
 | CalendarioServiceTest | 17 | Días de la semana cerrados, bloquear/desbloquear fechas, fecha pasada, duplicados, días con citas vivas, rangos de días cerrados |
-| UsuarioServiceTest | 26 | CRUD, email duplicado, hashing, soft delete, ownership, reactivar, paginación, búsqueda |
-| PagoServiceTest | 23 | PaymentIntents, webhooks, pago manual, reembolsos, polling, concurrencia |
+| ServicioServiceTest | 16 | CRUD, soft delete, subir/sustituir/borrar la foto de catálogo |
+| ValidadorImagenTest | 10 | Validación por magic bytes: JPEG/PNG/WebP reales, `Content-Type` que miente, extensión que miente, fichero vacío y fuera de tamaño, clave generada por el servidor |
 | JwtServiceTest | 9 | Generar/extraer/validar tokens, firmas, tokenVersion |
-| ServicioServiceTest | 9 | CRUD, soft delete |
 | AuthControllerTest | 8 | Login, registro, credenciales inválidas |
 | RefreshTokenServiceTest | 8 | Rotación, revocación, expiración |
 | JwtAuthenticationFilterTest | 7 | Filtro con/sin token, token inválido/expirado, cuenta desactivada, tokenVersion |
 | PasswordResetServiceTest | 7 | Solicitud, restablecimiento, expiración, anti-enumeración |
 | PeluqueroServiceTest | 7 | CRUD de peluqueros, soft delete |
+| SupabaseStorageAlmacenTest | 7 | Llamadas REST al almacén con `MockRestServiceServer`: subir, borrar, firmar URL, y que las claves con carpeta no se escapan |
+| AlmacenConfigTest | 5 | Elección de adaptador según el perfil: con `prod` y sin credenciales no arranca, en `dev` cae al disco |
 | RecordatorioCitaSchedulerTest | 5 | Recordatorio 24h: envío único, ignora anuladas/ya notificadas, Clock inyectable |
 | CustomUserDetailsServiceTest | 4 | Carga de usuario, roles, estado |
 | HorarioPropertiesTest | 4 | Binding de las properties de horario, incluida la lista de días de la semana cerrados |
 | EstadisticasServiceTest | 3 | Agregaciones, desglose de ingresos, exclusión de reembolsos |
+| PeluqueriaApplicationTests | 1 | El contexto de Spring carga (solo se ejecuta si `DB_USERNAME` está definida) |
 
 ```bash
 # Solo tests unitarios (no requiere Docker)
 ./mvnw test -Dtest='!*IntegrationTest'
 ```
 
-### Tests de integración (10, Testcontainers)
+### Tests de integración (16, Testcontainers)
 
 Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Docker (`@ServiceConnection`), con las migraciones Flyway aplicadas:
 
-* **AuthIntegrationTest** — flujo completo de registro/login por HTTP.
-* **OwnershipIntegrationTest** — un usuario no puede leer (GET) ni editar (PUT) la cita de otro (403); `/api/usuarios/me` nunca expone la contraseña.
-* **WebhookIntegrationTest** — webhook de Stripe end-to-end: un evento `payment_intent.succeeded` firmado se verifica con la **comprobación de firma real del SDK de Stripe**, el pago pasa a `PAGADO` y la cita se confirma; los eventos duplicados se procesan una sola vez (idempotencia); las firmas inválidas reciben 400.
-* **EstadisticasIntegrationTest** — estadísticas sobre datos reales: rango por defecto de 30 días, ingresos por método de pago, reembolsos excluidos.
+* **EstadisticasIntegrationTest** (5) — estadísticas sobre datos reales: rango por defecto de 30 días, ingresos por método de pago, reembolsos excluidos.
+* **WebhookIntegrationTest** (4) — webhook de Stripe end-to-end: un evento `payment_intent.succeeded` firmado se verifica con la **comprobación de firma real del SDK de Stripe**, el pago pasa a `PAGADO` y la cita se confirma; los eventos duplicados se procesan una sola vez (idempotencia); las firmas inválidas reciben 400.
+* **PagosIntegrationTest** (4) — listado de pagos del panel: paginación, filtros de rango y estado, solo ADMIN.
+* **OwnershipIntegrationTest** (2) — un usuario no puede leer (GET) ni editar (PUT) la cita de otro (403); `/api/usuarios/me` nunca expone la contraseña.
+* **AuthIntegrationTest** (1) — flujo completo de registro/login por HTTP.
+
+> Ningún test agenda «mañana»: un helper busca el **próximo lunes**, así que una ejecución en sábado no puede caer en un día cerrado y fallar por algo que no es lo que se está probando.
 
 ```bash
 # Suite completa, tests de integración incluidos (requiere Docker corriendo)
@@ -143,6 +154,8 @@ Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Dock
 | POST | `/api/servicios` | ADMIN | Crear servicio |
 | PUT | `/api/servicios/{id}` | ADMIN | Actualizar servicio |
 | DELETE | `/api/servicios/{id}` | ADMIN | Desactivar servicio (soft delete) |
+| POST | `/api/servicios/{id}/imagen` | ADMIN | Subir o sustituir la foto de catálogo (`multipart/form-data`, campo `imagen`). Devuelve el servicio ya con la URL nueva |
+| DELETE | `/api/servicios/{id}/imagen` | ADMIN | Borrar la foto de catálogo |
 
 ### Usuarios
 | Método | Endpoint | Acceso | Descripción |
@@ -154,6 +167,10 @@ Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Dock
 | PATCH | `/api/usuarios/{id}/rol` | ADMIN | Cambiar rol (con guard anti-lockout del último ADMIN) |
 | PATCH | `/api/usuarios/{id}/activar` | ADMIN | Reactivar un usuario desactivado |
 | DELETE | `/api/usuarios/{id}` | ADMIN | Desactivar usuario (soft delete) |
+| POST | `/api/usuarios/{id}/avatar` | Propio/ADMIN | Subir o sustituir la foto de perfil (`multipart/form-data`, campo `imagen`) |
+| DELETE | `/api/usuarios/{id}/avatar` | Propio/ADMIN | Borrar la foto de perfil |
+
+> Los endpoints de avatar solo piden `authenticated()` en `SecurityConfig`, no ADMIN: la propiedad la comprueba el service, que es la capa que sabe de quién es el id. La URL firmada se emite en `/me`, en `GET /{id}` y justo después de subir —nunca en el listado de usuarios—, así que recorrer usuarios no cuesta ninguna firma. Si el almacén no responde, esas respuestas devuelven el usuario **sin foto** y dejan un WARN en vez de fallar con 502; solo la subida propaga el error.
 
 ### Citas
 | Método | Endpoint | Acceso | Descripción |
@@ -189,7 +206,10 @@ Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Dock
 | POST | `/api/pagos/webhook` | Público | Webhook de Stripe (firma verificada, idempotente) |
 | POST | `/api/pagos/manual` | ADMIN | Registrar pago en efectivo o transferencia |
 | POST | `/api/pagos/{citaId}/reembolsar` | ADMIN | Reembolsar un pago (Stripe o manual) |
+| GET | `/api/pagos` | ADMIN | Listar pagos (paginado). Opcional `?desde=&hasta=&estado=&metodo=`; el rango incluye los dos extremos y filtra por fecha de pago, con la de creación como respaldo |
 | GET | `/api/pagos/cita/{citaId}` | Propio/ADMIN | Consultar el pago de una cita |
+
+> El listado filtra por `COALESCE(fechaPago, fechaCreacion)`, de modo que `?estado=PAGADO` sobre un rango devuelve exactamente los pagos que suman los ingresos que `/api/estadisticas` reporta para ese mismo periodo — que es lo que permite desglosar las barras de ingresos del dashboard.
 
 ### Estadísticas
 | Método | Endpoint | Acceso | Descripción |
@@ -204,10 +224,10 @@ Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Dock
 
 ## Modelo de datos
 
-El esquema se gestiona con **Flyway** (migraciones `V1` a `V8` en `src/main/resources/db/migration/`):
+El esquema se gestiona con **Flyway** (migraciones `V1` a `V10` en `src/main/resources/db/migration/`):
 
-* **`usuarios`** — clientes y administradores: nombre, email único, teléfono, contraseña hasheada, rol, flag de activo y `token_version`.
-* **`servicios`** — catálogo de la peluquería (cortes, tintes...): descripción, duración en minutos, precio, flag de activo.
+* **`usuarios`** — clientes y administradores: nombre, email único, teléfono, contraseña hasheada, rol, flag de activo, `token_version` y `avatar_clave`.
+* **`servicios`** — catálogo de la peluquería (cortes, tintes...): descripción, duración en minutos, precio, flag de activo e `imagen_clave`.
 * **`peluqueros`** — peluqueros/estilistas, con soft delete. Una cita puede asignarse opcionalmente a uno.
 * **`citas`** — vincula un `usuario` con un `servicio` (y opcionalmente un `peluquero`) en una fecha/hora concreta. Enum de estado (`PENDIENTE`, `CONFIRMADA`, `ANULADA`) y flag `recordatorio_enviado` para el recordatorio 24h.
 * **`dias_bloqueados`** — fechas en las que la peluquería no abre (festivos, cierres puntuales), con motivo opcional. Los días de la semana cerrados de forma fija no se guardan aquí: salen de la configuración.
@@ -215,6 +235,8 @@ El esquema se gestiona con **Flyway** (migraciones `V1` a `V8` en `src/main/reso
 * **`stripe_evento`** — IDs de eventos de Stripe ya procesados, garantiza la idempotencia del webhook.
 * **`password_reset_token`** — tokens de un solo uso para restablecer contraseña, con expiración.
 * **`refresh_token`** — refresh tokens persistentes para rotación de sesión.
+
+> `imagen_clave` y `avatar_clave` guardan la **clave del objeto** (p. ej. `12/uuid.jpg`), no una URL. La URL se construye al leer, así que cambiar de bucket o de proveedor —o pasar un bucket a privado, que es justo lo que hacen los avatares frente a las fotos de catálogo— es configuración y no una migración de datos. En los avatares importa doble: la URL va firmada y caduca, así que persistirla no tendría sentido.
 
 ## Puesta en marcha
 
@@ -247,6 +269,7 @@ La API queda disponible en `http://localhost:8080` (Swagger UI en `/swagger-ui.h
     * `BUSINESS_EMAIL`: correo del negocio para notificaciones.
     * `FRONTEND_URL`: URL del frontend para los enlaces de los correos (default `http://localhost:4200`).
     * `CORS_ALLOWED_ORIGINS` *(solo perfil `prod`)*: orígenes permitidos separados por coma. El perfil `dev` ya permite `http://localhost:4200`.
+    * `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` *(opcionales)*: almacén de objetos para las imágenes. **Sin ellas se escribe en el disco local y la aplicación arranca igual**, así que este repo se puede clonar y ejecutar sin cuenta en ningún servicio externo. La service key salta las políticas de seguridad de fila, así que vive solo en el servidor: nunca en un frontend, nunca en un commit. Con el perfil `prod` son **obligatorias**: sin ellas la aplicación no arranca.
 
     *(El horario laboral se puede ajustar con `peluqueria.horario.apertura` y `peluqueria.horario.cierre`; por defecto 09:00-20:00.)*
 
@@ -264,6 +287,7 @@ La API queda disponible en `http://localhost:8080` (Swagger UI en `/swagger-ui.h
 
 * **API:** Render (Docker, `Dockerfile` multi-stage en este repo). Cada push a `main` redespliega.
 * **Base de datos:** Supabase (PostgreSQL gestionado, conectado a través de su session pooler IPv4).
+* **Almacén de imágenes:** Supabase Storage, con dos buckets que hay que crear — **`servicios`** (lectura pública) y **`avatares`** (privado, se lee con URL firmada). Los binarios nunca viven junto a la aplicación: el disco de Render es efímero y cada push a `main` lo borra.
 * **Email:** los correos transaccionales salen por el relay SMTP de un proveedor en el puerto **2525** (el tier Free de Render bloquea los puertos SMTP salientes 25/465/587).
 * **Frontends:** Firebase Hosting (ver abajo).
 * **CI:** GitHub Actions ejecuta la suite completa — tests unitarios + integración con Testcontainers — en cada push y pull request.
