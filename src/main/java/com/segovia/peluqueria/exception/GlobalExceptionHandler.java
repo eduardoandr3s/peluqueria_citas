@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -128,6 +129,19 @@ public class GlobalExceptionHandler {
         log.error("Fallo del almacen de ficheros", ex);
         Map<String, String> error = new HashMap<>();
         error.put("error", "No se ha podido guardar el fichero. Intentelo de nuevo.");
+        return error;
+    }
+
+    // Ruta que no existe. Sin este handler la traga el generico de Exception y sale un 500
+    // "error interno", que es mentira: el servidor esta bien, es la URL la que no existe.
+    // Importa mas de lo que parece con el asistente: cuando esta apagado su ruta no se
+    // registra, y el cliente distingue "no esta desplegado" (404) de "ha fallado" (500).
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    @ExceptionHandler(NoResourceFoundException.class)
+    public Map<String, String> manejarRutaNoEncontrada(NoResourceFoundException ex) {
+        log.debug("Ruta no encontrada: {}", ex.getResourcePath());
+        Map<String, String> error = new HashMap<>();
+        error.put("error", "El recurso solicitado no existe.");
         return error;
     }
 

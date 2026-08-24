@@ -66,7 +66,7 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 * **Manejo global de excepciones:** `@RestControllerAdvice` con handlers específicos para validación (400), no encontrado (404), acceso denegado (403), conflictos (409) y un handler genérico (500) que no expone detalles internos. Incluye logging con SLF4J.
 * **Documentación OpenAPI / Swagger UI:** generada automáticamente con springdoc-openapi, disponible en `/swagger-ui.html` y `/v3/api-docs`.
 * **Perfiles de configuración:** entornos `dev` y `prod` separados. El esquema se gestiona con **migraciones Flyway** (`src/main/resources/db/migration/`). Con el perfil `prod` la aplicación **se niega a arrancar** sin credenciales de almacén en vez de caer al disco local: en un contenedor efímero ese fallo es silencioso —las subidas funcionan y desaparecen en el siguiente despliegue—.
-* **Suite de tests (295 tests):** 274 tests unitarios que cubren la lógica de negocio sin Spring context ni base de datos, más 21 tests de integración con **Testcontainers** (PostgreSQL real en Docker) que cubren autenticación, reglas de ownership, estadísticas, pagos y el flujo completo del webhook de Stripe con verificación de firma real.
+* **Suite de tests (298 tests):** 274 tests unitarios que cubren la lógica de negocio sin Spring context ni base de datos, más 24 tests de integración con **Testcontainers** (PostgreSQL real en Docker) que cubren autenticación, reglas de ownership, estadísticas, pagos y el flujo completo del webhook de Stripe con verificación de firma real.
 
 ## Estructura del proyecto
 
@@ -90,7 +90,7 @@ Todos los módulos de negocio siguen el mismo esquema: entidad JPA, controller, 
 
 ## Tests
 
-**295 tests** se ejecutan en CI en cada push (GitHub Actions).
+**298 tests** se ejecutan en CI en cada push (GitHub Actions).
 
 ### Tests unitarios (246)
 
@@ -127,7 +127,7 @@ Cubren toda la lógica de negocio sin Spring context ni base de datos (pocos seg
 ./mvnw test -Dtest='!*IntegrationTest'
 ```
 
-### Tests de integración (21, Testcontainers)
+### Tests de integración (24, Testcontainers)
 
 Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Docker (`@ServiceConnection`), con las migraciones Flyway aplicadas:
 
@@ -135,6 +135,7 @@ Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Dock
 * **WebhookIntegrationTest** (3) — webhook de Stripe end-to-end: un evento `payment_intent.succeeded` firmado se verifica con la **comprobación de firma real del SDK de Stripe**, el pago pasa a `PAGADO` y la cita se confirma; los eventos duplicados se procesan una sola vez (idempotencia); las firmas inválidas reciben 400.
 * **PagosIntegrationTest** (10) — listado de pagos del panel (paginación, filtros de rango y estado, solo ADMIN) y el recibo en PDF por HTTP: el dueño recibe un PDF de verdad como adjunto, un ADMIN el de cualquiera, otro cliente 403 y un pago no cobrado 409.
 * **OwnershipIntegrationTest** (2) — un usuario no puede leer (GET) ni editar (PUT) la cita de otro (403); `/api/usuarios/me` nunca expone la contraseña.
+* **AsistenteApagadoIntegrationTest** (3) — con el asistente apagado (el valor por defecto) la aplicación **arranca igual** y su ruta responde **404 y no 500**, que es lo que permite al cliente distinguir «no está desplegado» de «ha fallado». El tercero fija el contrapunto: una ruta inexistente que **no** es pública responde 403, porque Spring Security corta antes de llegar al dispatcher y no confirma a un anónimo qué rutas existen.
 * **AuthIntegrationTest** (1) — flujo completo de registro/login por HTTP.
 
 > Ningún test agenda «mañana»: un helper busca el **próximo lunes**, así que una ejecución en sábado no puede caer en un día cerrado y fallar por algo que no es lo que se está probando.

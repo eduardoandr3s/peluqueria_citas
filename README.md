@@ -66,7 +66,7 @@ Backend for a complete appointment booking and management system for a hair salo
 * **Global exception handling:** `@RestControllerAdvice` with specific handlers for validation (400), not found (404), access denied (403), conflicts (409) and a generic handler (500) that never leaks internal details. Includes SLF4J logging.
 * **OpenAPI / Swagger UI documentation:** auto-generated with springdoc-openapi, available at `/swagger-ui.html` and `/v3/api-docs`.
 * **Configuration profiles:** separate `dev` and `prod` environments. Schema is managed with **Flyway migrations** (`src/main/resources/db/migration/`). Under the `prod` profile the app **refuses to start** without storage credentials rather than falling back to local disk: on an ephemeral container that failure is silent — uploads succeed and vanish on the next deploy.
-* **Test suite (295 tests):** 274 unit tests covering the business logic without Spring context or database, plus 21 integration tests with **Testcontainers** (real PostgreSQL in Docker) covering authentication, ownership rules, statistics, payments and the full Stripe webhook flow with real signature verification.
+* **Test suite (298 tests):** 274 unit tests covering the business logic without Spring context or database, plus 24 integration tests with **Testcontainers** (real PostgreSQL in Docker) covering authentication, ownership rules, statistics, payments and the full Stripe webhook flow with real signature verification.
 
 ## Project Structure
 
@@ -90,7 +90,7 @@ Each business module follows the same layout: JPA entity, controller, service, r
 
 ## Tests
 
-**295 tests** run in CI on every push (GitHub Actions).
+**298 tests** run in CI on every push (GitHub Actions).
 
 ### Unit tests (246)
 
@@ -127,7 +127,7 @@ They cover all business logic without Spring context or database (a few seconds)
 ./mvnw test -Dtest='!*IntegrationTest'
 ```
 
-### Integration tests (21, Testcontainers)
+### Integration tests (24, Testcontainers)
 
 They boot the full application against a **real PostgreSQL** started in Docker (`@ServiceConnection`), with Flyway migrations applied:
 
@@ -135,6 +135,7 @@ They boot the full application against a **real PostgreSQL** started in Docker (
 * **WebhookIntegrationTest** (3) — end-to-end Stripe webhook: a signed `payment_intent.succeeded` event is verified with the **real Stripe SDK signature check**, the payment becomes `PAGADO` and the appointment is confirmed; duplicated events are processed only once (idempotency); invalid signatures get 400.
 * **PagosIntegrationTest** (10) — payment listing for the dashboard (pagination, range and status filters, ADMIN only) and the PDF receipt over HTTP: the owner gets a real PDF as an attachment, an ADMIN gets anyone's, someone else gets 403, an uncollected payment 409.
 * **OwnershipIntegrationTest** (2) — a user cannot read (GET) or edit (PUT) someone else's appointment (403); `/api/usuarios/me` never exposes the password.
+* **AsistenteApagadoIntegrationTest** (3) — with the assistant switched off (the default) the app **still starts** and its route answers **404, not 500**, which is what lets the client tell "not deployed" from "failed". The third pins the counterpoint: an unknown route that is **not** public answers 403, because Spring Security cuts in before the dispatcher and does not confirm to an anonymous caller which routes exist.
 * **AuthIntegrationTest** (1) — full register/login flow over HTTP.
 
 > Tests never book "tomorrow": a helper picks the **next Monday**, so a run on a Saturday cannot land on a closed day and fail for reasons unrelated to what is being tested.
