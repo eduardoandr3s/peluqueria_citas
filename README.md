@@ -19,7 +19,7 @@ Backend for a complete appointment booking and management system for a hair salo
 ## Tech Stack
 
 * **Java 21 (Temurin LTS)**
-* **Spring Boot 4.0.3** (main framework)
+* **Spring Boot 4.1.1** (main framework)
 * **PostgreSQL** (relational database)
 * **Flyway** (database migrations, V1-V10)
 * **Spring Data JPA / Hibernate** (ORM)
@@ -30,6 +30,7 @@ Backend for a complete appointment booking and management system for a hair salo
 * **Stripe API** (online payments: PaymentIntents, webhooks, refunds)
 * **Spring Mail** (transactional emails and appointment reminders)
 * **Bucket4j** (rate limiting)
+* **Spring AI + Gemini** (conversational assistant with tool calling over the real services)
 * **springdoc-openapi** (Swagger UI documentation)
 * **Maven** · **Lombok** · **Docker Compose** (local dev environment)
 * **JUnit 5 + Mockito** (unit tests) · **Testcontainers** (integration tests against a real PostgreSQL)
@@ -37,7 +38,7 @@ Backend for a complete appointment booking and management system for a hair salo
 
 ## Features
 
-* **Domain-based architecture:** code is organized by business module (`usuario/`, `cita/`, `servicio/`, `pago/`, `peluquero/`, `calendario/`, `estadistica/`, `notificacion/`, `auth/`, `security/`). Each module contains its entity, controller, service, repository and DTOs.
+* **Domain-based architecture:** code is organized by business module (`usuario/`, `cita/`, `servicio/`, `pago/`, `peluquero/`, `calendario/`, `estadistica/`, `notificacion/`, `asistente/`, `auth/`, `security/`). Each module contains its entity, controller, service, repository and DTOs.
 * **Constructor injection:** dependencies are injected through constructors with `final` fields (no `@Autowired`), following Spring best practices for immutability and testability.
 * **JWT authentication with roles:** login/registration with JWT access tokens (30 min) plus **rotating refresh tokens** (30 days). Two roles: `USER` (customers) and `ADMIN`. On every request the API also checks that the account is still active and that the token's `tokenVersion` matches the database: changing the password or the role **revokes** previously issued tokens (role and active status are always read from the database, never from the token).
 * **Password reset:** one-time tokens sent by email, with expiration and **per-IP rate limiting** (Bucket4j). The endpoint always returns 200 to prevent user enumeration.
@@ -49,6 +50,11 @@ Backend for a complete appointment booking and management system for a hair salo
 * **Closed days (holidays and one-off closures):** an ADMIN can block a specific date with an optional reason (`/api/dias-bloqueados`). A blocked day returns no slots and rejects bookings and reschedules with the reason in the message. `GET /api/citas/dias-cerrados` returns every closed day in a range — the fixed closed weekdays (Sunday) and the blocked dates, unified — so clients can render them as **unselectable** instead of letting the customer pick a day with no available times. Blocking a day that still has live appointments is rejected (409) rather than silently cancelling them.
 * **Image upload (catalog photos and avatars):** a single storage port (`AlmacenFicheros`) with two implementations — **Supabase Storage** over its REST API and local disk — so the project runs with no cloud account. Uploads are validated by **magic bytes** (the first bytes of the file), never by `Content-Type` or filename, since both are set by whoever uploads; the object key is generated server-side with a UUID, so a name like `../../etc/passwd.jpg` never reaches the store. Replacing a photo **deletes the previous object** instead of leaving orphans behind. The service catalog uses a **public** bucket and avatars a **private** one read through **short-lived signed URLs**, because a profile photo is personal data. Limits: 2 MB per file (**413** if the request exceeds it, **400** if the content is not a valid JPEG/PNG/WebP) and **502** if the store does not respond.
 * **The database stores the object key, not the URL** (`servicios.imagen_clave`, `usuarios.avatar_clave`). The URL is built on read, which is why switching bucket or provider — or turning a bucket private, as avatars did — is a configuration change and not a data migration.
+* **Conversational assistant (Spring AI + Gemini):** `POST /api/asistente` answers in natural language about services, prices, opening hours, holidays and free slots. It does not improvise: every fact comes from a **tool** (*tool calling*) that calls the real service, and even today's date is handed to it, because a model left to guess what day it is resolves "tomorrow" by inventing a date. Four decisions are the design:
+    * **Read-only, which is what lets it be public.** No tool writes, and no tool returns customer data. A prompt injection therefore has nothing to break, and not a single name or phone number reaches the provider — which is exactly what makes a free tier usable when its terms reserve the right to train on prompts. If the assistant grew towards booking appointments, that premise collapses and the provider would have to change before the code did.
+    * **Off by default, and it is a real switch.** `spring.ai.model.chat` is `none` when unset, so without an API key the whole domain is not registered and the app starts anyway: the assistant is an extra, not a dependency. This is not decorative — Spring AI's autoconfiguration only checks that the class is on the classpath, not that credentials exist, so without that `none` the app **fails to start** in any environment without a key, integration tests included.
+    * **The cap is about spend, not abuse.** A public endpoint burning a free tier's quota is exhausted within minutes once someone finds the URL, so it is rate-limited per IP through the `RateLimitFilter` that already existed. Quotas are **independent per route**: burning the assistant's cannot leave anyone unable to recover their password.
+    * **Every token is paid again on every later turn.** The history is resent in full with each message, so the tools return minimal records rather than the application's DTOs: a service's image URL does not help state its price and would cost money on every turn. For the same reason there are caps on history, on the answer and on date ranges, and the response reports token usage — on a free tier the limit is quota, and unmeasured quota runs out without warning.
 * **PDF payment receipt:** `GET /api/pagos/{id}/recibo` renders a one-page receipt from a Thymeleaf template, **generated on the fly and never stored** — it can always be rebuilt from the database, so keeping it would only add quota and lifecycle to manage. Only for **collected or refunded** payments: issuing a receipt for money that never arrived would state something false, so any other status returns **409**. The document says plainly that it is a proof of payment and **not an invoice**, since it carries no tax data.
 * **Business statistics:** `GET /api/estadisticas` (ADMIN only) returns appointments by status, revenue broken down by payment method (refunds excluded, computed by payment date), top services and new customers. Defaults to the **last 30 days** when no date range is given.
 * **Email notifications:** event-driven emails (registration, booking, modification, cancellation, payment confirmation, password changes) decoupled from business logic via Spring application events (`@TransactionalEventListener(AFTER_COMMIT)`), plus a **24-hour appointment reminder** sent by a scheduler (runs hourly, injectable `Clock` for testability, `recordatorio_enviado` flag guarantees a single send).
@@ -60,7 +66,7 @@ Backend for a complete appointment booking and management system for a hair salo
 * **Global exception handling:** `@RestControllerAdvice` with specific handlers for validation (400), not found (404), access denied (403), conflicts (409) and a generic handler (500) that never leaks internal details. Includes SLF4J logging.
 * **OpenAPI / Swagger UI documentation:** auto-generated with springdoc-openapi, available at `/swagger-ui.html` and `/v3/api-docs`.
 * **Configuration profiles:** separate `dev` and `prod` environments. Schema is managed with **Flyway migrations** (`src/main/resources/db/migration/`). Under the `prod` profile the app **refuses to start** without storage credentials rather than falling back to local disk: on an ephemeral container that failure is silent — uploads succeed and vanish on the next deploy.
-* **Test suite (267 tests):** 246 unit tests covering the business logic without Spring context or database, plus 21 integration tests with **Testcontainers** (real PostgreSQL in Docker) covering authentication, ownership rules, statistics, payments and the full Stripe webhook flow with real signature verification.
+* **Test suite (295 tests):** 274 unit tests covering the business logic without Spring context or database, plus 21 integration tests with **Testcontainers** (real PostgreSQL in Docker) covering authentication, ownership rules, statistics, payments and the full Stripe webhook flow with real signature verification.
 
 ## Project Structure
 
@@ -84,7 +90,7 @@ Each business module follows the same layout: JPA entity, controller, service, r
 
 ## Tests
 
-**267 tests** run in CI on every push (GitHub Actions).
+**295 tests** run in CI on every push (GitHub Actions).
 
 ### Unit tests (246)
 
@@ -96,6 +102,9 @@ They cover all business logic without Spring context or database (a few seconds)
 | UsuarioServiceTest | 38 | CRUD, duplicate email, hashing, soft delete, ownership, reactivation, pagination, search, avatar upload/removal |
 | PagoServiceTest | 32 | PaymentIntents, webhooks, manual payment, refunds, polling, concurrency, who may request a receipt and in which payment states |
 | CalendarioServiceTest | 17 | Closed weekdays, blocking/unblocking dates, past dates, duplicates, days with live appointments, closed-day ranges |
+| AsistenteHerramientasTest | 11 | The assistant's tools: delegation to the real services, that only what the model needs travels to it (no image URLs, no descriptions), the closed-day range cap, an invalid date turned into a message the model can correct, and that "today" comes from the `Clock` rather than a guess |
+| AsistenteServiceTest | 9 | History mapped to the right role, token usage read back, and exhausted-quota detection versus any other failure (including a cyclic cause, which would hang the walk) |
+| RateLimitFilterTest | 8 | **Per-route independent quotas**: burning the assistant's does not leave password recovery without attempts. Plus per-IP quotas, `X-Forwarded-For` behind the proxy, and that it leaves other routes and methods alone |
 | ServicioServiceTest | 16 | CRUD, soft delete, catalog photo upload/replacement/removal |
 | ReciboPdfGeneradorTest | 10 | Renders the **real PDF** with the production template and reads the text back with PDFBox: payment and appointment data, refund notice, "not an invoice" disclaimer, fixed decimal format |
 | ValidadorImagenTest | 10 | Magic-byte validation: real JPEG/PNG/WebP, lying `Content-Type`, lying extension, oversized and empty files, server-generated key |
@@ -220,6 +229,11 @@ They boot the full application against a **real PostgreSQL** started in Docker (
 |--------|----------|--------|-------------|
 | GET | `/api/estadisticas` | ADMIN | Appointments by status, revenue by payment method, top services and new customers. `?desde=YYYY-MM-DD&hasta=YYYY-MM-DD` optional; defaults to the last 30 days |
 
+### Assistant (public)
+| Method | Endpoint | Access | Description |
+|--------|----------|--------|-------------|
+| POST | `/api/asistente` | Public | Natural-language question about services, prices, opening hours, closed days and free slots. The body carries `mensaje` plus the conversation `historial` (max. 10 turns). Returns the answer and the turn's token usage. Capped at 10 requests/hour per IP; 503 if the provider fails or the quota is exhausted; 404 if the assistant is switched off |
+
 ### Documentation (public)
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -274,6 +288,8 @@ The API is available at `http://localhost:8080` (Swagger UI at `/swagger-ui.html
     * `FRONTEND_URL`: frontend URL used in email links (default `http://localhost:4200`).
     * `CORS_ALLOWED_ORIGINS` *(prod profile only)*: comma-separated allowed origins. The `dev` profile already allows `http://localhost:4200`.
     * `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` *(optional)*: object storage for images. **Without them the app writes to local disk and starts fine**, so you can clone and run this repo without an account on any external service. The service key bypasses row-level security, so it lives only on the server — never in a frontend, never in a commit. Under the `prod` profile these are **required**: the app refuses to start without them.
+
+    * `ASISTENTE_MODELO` / `GEMINI_API_KEY` *(optional)*: switch the conversational assistant on. They go **together**: `ASISTENTE_MODELO=google-genai` plus an API key from [Google AI Studio](https://aistudio.google.com/apikey). Without them the assistant is not deployed and the rest of the API works exactly the same.
 
     *(Business hours can be adjusted with `peluqueria.horario.apertura` and `peluqueria.horario.cierre`; default 09:00-20:00.)*
 

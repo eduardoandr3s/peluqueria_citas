@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>4.0.3</version>
+		<version>4.1.1</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.segovia</groupId>
@@ -28,12 +28,28 @@
 	</scm>
 	<properties>
 		<java.version>21</java.version>
-		<!-- Spring Boot 4.0.3 no gestiona la version de Testcontainers en su BOM: se fija aqui.
+		<!-- Spring Boot no gestiona la version de Testcontainers en su BOM: se fija aqui.
 		     1.21.4 es el minimo: 1.21.3 negocia la API de Docker con la version 1.32, y
 		     Docker Engine 29 exige 1.40 como minimo, asi que los IT no arrancaban en local
 		     ("Could not find a valid Docker environment"). No bajar de aqui. -->
 		<testcontainers.version>1.21.4</testcontainers.version>
+		<!-- Spring AI 2.0.x es la primera linea sobre Spring Boot 4: su starter depende de
+		     spring-boot-starter 4.1.1, y por eso el parent de arriba esta en 4.1.1 y no en
+		     4.0.3. Si se baja Spring Boot, esto deja de resolver. -->
+		<spring-ai.version>2.0.1</spring-ai.version>
 	</properties>
+
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>org.springframework.ai</groupId>
+				<artifactId>spring-ai-bom</artifactId>
+				<version>${spring-ai.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 	<dependencies>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -106,6 +122,14 @@
 			<groupId>org.springdoc</groupId>
 			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
 			<version>3.0.3</version>
+		</dependency>
+		<!-- Asistente conversacional. El artefacto es google-genai (API key de Google AI
+		     Studio, que es la que tiene tier gratuito), no vertex-ai-gemini: ese se
+		     renombro en Spring AI 2.x y ya no existe en el 2.0.1. La version la gobierna
+		     el BOM de arriba. -->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-starter-model-google-genai</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>com.stripe</groupId>

@@ -1,6 +1,7 @@
 package com.segovia.peluqueria.exception;
 
 import com.segovia.peluqueria.almacen.AlmacenException;
+import com.segovia.peluqueria.asistente.AsistenteException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -127,6 +128,24 @@ public class GlobalExceptionHandler {
         log.error("Fallo del almacen de ficheros", ex);
         Map<String, String> error = new HashMap<>();
         error.put("error", "No se ha podido guardar el fichero. Intentelo de nuevo.");
+        return error;
+    }
+
+    // Fallo del proveedor del modelo: el asistente es un extra, asi que se degrada con un
+    // mensaje util y nunca tumba nada mas. La cuota agotada se distingue porque reintentar
+    // no arregla nada hasta que el contador se reinicia.
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    @ExceptionHandler(AsistenteException.class)
+    public Map<String, String> manejarFalloDelAsistente(AsistenteException ex) {
+        Map<String, String> error = new HashMap<>();
+        if (ex.isCuotaAgotada()) {
+            log.warn("Cuota del asistente agotada", ex);
+            error.put("error", "El asistente no esta disponible en este momento. "
+                    + "Puedes consultar los servicios en la web o llamarnos por telefono.");
+        } else {
+            log.error("Fallo del asistente", ex);
+            error.put("error", "El asistente no ha podido responder. Intentalo de nuevo en un momento.");
+        }
         return error;
     }
 

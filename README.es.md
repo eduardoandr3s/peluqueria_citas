@@ -19,7 +19,7 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 ## Tecnologías
 
 * **Java 21 (Temurin LTS)**
-* **Spring Boot 4.0.3** (framework principal)
+* **Spring Boot 4.1.1** (framework principal)
 * **PostgreSQL** (base de datos relacional)
 * **Flyway** (migraciones de esquema, V1-V10)
 * **Spring Data JPA / Hibernate** (ORM)
@@ -30,6 +30,7 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 * **Stripe API** (pagos online: PaymentIntents, webhooks, reembolsos)
 * **Spring Mail** (correos transaccionales y recordatorios de cita)
 * **Bucket4j** (rate limiting)
+* **Spring AI + Gemini** (asistente conversacional con tool calling sobre los services reales)
 * **springdoc-openapi** (documentación Swagger UI)
 * **Maven** · **Lombok** · **Docker Compose** (entorno de desarrollo local)
 * **JUnit 5 + Mockito** (tests unitarios) · **Testcontainers** (tests de integración contra un PostgreSQL real)
@@ -37,7 +38,7 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 
 ## Características
 
-* **Arquitectura por dominio:** el código se organiza por módulo de negocio (`usuario/`, `cita/`, `servicio/`, `pago/`, `peluquero/`, `calendario/`, `estadistica/`, `notificacion/`, `auth/`, `security/`). Cada módulo agrupa su entidad, controller, service, repository y DTOs.
+* **Arquitectura por dominio:** el código se organiza por módulo de negocio (`usuario/`, `cita/`, `servicio/`, `pago/`, `peluquero/`, `calendario/`, `estadistica/`, `notificacion/`, `asistente/`, `auth/`, `security/`). Cada módulo agrupa su entidad, controller, service, repository y DTOs.
 * **Constructor injection:** inyección de dependencias vía constructor con campos `final` (sin `@Autowired`), siguiendo las buenas prácticas de Spring para inmutabilidad y testabilidad.
 * **Autenticación JWT con roles:** login/registro con access tokens JWT (30 min) más **refresh tokens con rotación** (30 días). Dos roles: `USER` (clientes) y `ADMIN`. En cada request se valida además que la cuenta siga activa y que el `tokenVersion` del token coincida con el de la BD: cambiar la contraseña o el rol **revoca** los tokens emitidos antes (el rol y el estado activo se leen siempre de la BD, nunca del token).
 * **Recuperación de contraseña:** tokens de un solo uso enviados por correo, con expiración y **rate limiting por IP** (Bucket4j). El endpoint responde siempre 200 para evitar enumeración de usuarios.
@@ -49,6 +50,11 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 * **Días cerrados (festivos y cierres puntuales):** un ADMIN puede bloquear una fecha concreta con un motivo opcional (`/api/dias-bloqueados`). Un día bloqueado no devuelve horas libres y rechaza agendar y reprogramar indicando el motivo. `GET /api/citas/dias-cerrados` devuelve todos los días cerrados de un rango —los días de la semana fijos (domingo) y las fechas bloqueadas, unificados— para que los clientes los pinten **no seleccionables** en vez de dejar elegir un día sin horas disponibles. Bloquear un día que aún tiene citas vivas se rechaza (409) en vez de anularlas por sorpresa.
 * **Subida de imágenes (fotos de catálogo y avatares):** un único puerto de almacén (`AlmacenFicheros`) con dos implementaciones —**Supabase Storage** por su API REST y disco local—, así que el proyecto arranca sin cuenta en ningún servicio. Lo que se sube se valida por **magic bytes** (los primeros bytes del fichero), nunca por el `Content-Type` ni el nombre, porque los dos los pone quien sube; la clave del objeto la genera el servidor con un UUID, así que un nombre tipo `../../etc/passwd.jpg` no llega al almacén. Sustituir una foto **borra el objeto anterior** en vez de dejar huérfanos comiendo cuota. El catálogo de servicios usa un bucket **público** y los avatares uno **privado** que se lee con **URL firmada de vida corta**, porque una foto de perfil es un dato personal. Límites: 2 MB por fichero (**413** si la petición se pasa, **400** si el contenido no es un JPEG/PNG/WebP válido) y **502** si el almacén no responde.
 * **En la base de datos va la clave del objeto, no la URL** (`servicios.imagen_clave`, `usuarios.avatar_clave`). La URL se construye al leer, y por eso cambiar de bucket o de proveedor —o pasar un bucket a privado, que es justo lo que hacen los avatares— es configuración y no una migración de datos.
+* **Asistente conversacional (Spring AI + Gemini):** `POST /api/asistente` responde en lenguaje natural sobre servicios, precios, horario, festivos y huecos libres. No improvisa: cada dato sale de una **herramienta** (*tool calling*) que llama al service real, y hasta la fecha de hoy se la damos nosotros, porque un modelo que supone en qué día vive resuelve «mañana» inventándose una fecha. Cuatro decisiones que son el diseño:
+    * **Solo lectura, y por eso puede ser público.** Ninguna herramienta escribe, y ninguna devuelve datos de clientes. Eso hace que una inyección de prompt no tenga nada que romper y que al proveedor no le llegue ni un nombre ni un teléfono — que es justo lo que permite usar un tier gratuito cuyos términos reservan el derecho a entrenar con los prompts. Si el asistente creciera hacia agendar citas, esa premisa se cae y habría que cambiar de proveedor antes que de código.
+    * **Apagado por defecto, y es un interruptor de verdad.** `spring.ai.model.chat` vale `none` si no se configura, así que sin API key el dominio entero no se registra y la aplicación arranca igual: el asistente es un extra, no una dependencia. Esto no es decorativo — la autoconfiguración de Spring AI solo comprueba que la clase esté en el classpath, no que haya credenciales, así que sin ese `none` la aplicación **no arranca** en cualquier entorno sin key, tests de integración incluidos.
+    * **El límite es el gasto, no el abuso.** Un endpoint público que consume cuota de un tier gratuito se agota en minutos si alguien encuentra la URL, así que va limitado por IP con el `RateLimitFilter` que ya existía. Los cupos son **independientes por ruta**: quemar el del asistente no puede dejar a nadie sin poder recuperar su contraseña.
+    * **Cada token se paga en todos los turnos siguientes.** El historial se reenvía completo en cada mensaje, así que las herramientas devuelven records mínimos en vez de los DTOs de la aplicación: la URL de la foto de un servicio no ayuda a decir cuánto cuesta y costaría dinero en cada turno. Por lo mismo hay tope de historial, de respuesta y de rango de fechas, y la respuesta incluye el consumo de tokens, porque en un tier gratuito el límite es la cuota y sin medirlo no se ve venir.
 * **Recibo de pago en PDF:** `GET /api/pagos/{id}/recibo` renderiza un justificante de una página desde una plantilla Thymeleaf, **generado al vuelo y sin almacenarse** — siempre se puede reconstruir desde la base de datos, así que guardarlo solo añadiría cuota y ciclo de vida que gestionar. Solo para pagos **cobrados o reembolsados**: emitir un recibo por dinero que no ha entrado afirmaría algo falso, así que cualquier otro estado responde **409**. El documento dice con claridad que es un justificante de pago y **no una factura**, porque no lleva datos fiscales.
 * **Estadísticas de negocio:** `GET /api/estadisticas` (solo ADMIN) devuelve citas por estado, ingresos desglosados por método de pago (excluyendo reembolsos, calculados por fecha de pago), servicios más demandados y clientes nuevos. Por defecto usa los **últimos 30 días** si no se indica rango.
 * **Notificaciones por correo:** emails dirigidos por eventos (registro, cita agendada, modificada, anulada, pago confirmado, cambios de contraseña) desacoplados de la lógica de negocio mediante eventos de Spring (`@TransactionalEventListener(AFTER_COMMIT)`), más un **recordatorio de cita 24h antes** enviado por un scheduler (corre cada hora, `Clock` inyectable para testabilidad, el flag `recordatorio_enviado` garantiza un único envío).
@@ -60,7 +66,7 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 * **Manejo global de excepciones:** `@RestControllerAdvice` con handlers específicos para validación (400), no encontrado (404), acceso denegado (403), conflictos (409) y un handler genérico (500) que no expone detalles internos. Incluye logging con SLF4J.
 * **Documentación OpenAPI / Swagger UI:** generada automáticamente con springdoc-openapi, disponible en `/swagger-ui.html` y `/v3/api-docs`.
 * **Perfiles de configuración:** entornos `dev` y `prod` separados. El esquema se gestiona con **migraciones Flyway** (`src/main/resources/db/migration/`). Con el perfil `prod` la aplicación **se niega a arrancar** sin credenciales de almacén en vez de caer al disco local: en un contenedor efímero ese fallo es silencioso —las subidas funcionan y desaparecen en el siguiente despliegue—.
-* **Suite de tests (267 tests):** 246 tests unitarios que cubren la lógica de negocio sin Spring context ni base de datos, más 21 tests de integración con **Testcontainers** (PostgreSQL real en Docker) que cubren autenticación, reglas de ownership, estadísticas, pagos y el flujo completo del webhook de Stripe con verificación de firma real.
+* **Suite de tests (295 tests):** 274 tests unitarios que cubren la lógica de negocio sin Spring context ni base de datos, más 21 tests de integración con **Testcontainers** (PostgreSQL real en Docker) que cubren autenticación, reglas de ownership, estadísticas, pagos y el flujo completo del webhook de Stripe con verificación de firma real.
 
 ## Estructura del proyecto
 
@@ -84,7 +90,7 @@ Todos los módulos de negocio siguen el mismo esquema: entidad JPA, controller, 
 
 ## Tests
 
-**267 tests** se ejecutan en CI en cada push (GitHub Actions).
+**295 tests** se ejecutan en CI en cada push (GitHub Actions).
 
 ### Tests unitarios (246)
 
@@ -96,6 +102,9 @@ Cubren toda la lógica de negocio sin Spring context ni base de datos (pocos seg
 | UsuarioServiceTest | 38 | CRUD, email duplicado, hashing, soft delete, ownership, reactivar, paginación, búsqueda, subir/borrar avatar |
 | PagoServiceTest | 32 | PaymentIntents, webhooks, pago manual, reembolsos, polling, concurrencia, quién puede pedir un recibo y en qué estados |
 | CalendarioServiceTest | 17 | Días de la semana cerrados, bloquear/desbloquear fechas, fecha pasada, duplicados, días con citas vivas, rangos de días cerrados |
+| AsistenteHerramientasTest | 11 | Las herramientas del asistente: delegación en los services reales, que solo viaje al modelo lo que necesita (ni URLs de imágenes ni descripciones), tope del rango de días cerrados, fecha inválida traducida a un mensaje que el modelo puede corregir, y que «hoy» salga del `Clock` y no de una suposición |
+| AsistenteServiceTest | 9 | Traducción del historial al rol correcto, lectura del consumo de tokens, y detección de cuota agotada frente a cualquier otro fallo (incluida una causa cíclica, que colgaría el recorrido) |
+| RateLimitFilterTest | 8 | Cupos **independientes por ruta**: quemar el del asistente no deja sin intentos la recuperación de contraseña. Además cupo por IP, `X-Forwarded-For` tras el proxy, y que no toque rutas ni métodos ajenos |
 | ServicioServiceTest | 16 | CRUD, soft delete, subir/sustituir/borrar la foto de catálogo |
 | ReciboPdfGeneradorTest | 10 | Renderiza el **PDF de verdad** con la plantilla de producción y le vuelve a extraer el texto con PDFBox: datos del pago y de la cita, aviso de reembolso, la advertencia de que no es una factura, formato de decimales fijo |
 | ValidadorImagenTest | 10 | Validación por magic bytes: JPEG/PNG/WebP reales, `Content-Type` que miente, extensión que miente, fichero vacío y fuera de tamaño, clave generada por el servidor |
@@ -220,6 +229,11 @@ Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Dock
 |--------|----------|--------|-------------|
 | GET | `/api/estadisticas` | ADMIN | Citas por estado, ingresos por método de pago, top servicios y clientes nuevos. `?desde=YYYY-MM-DD&hasta=YYYY-MM-DD` opcional; por defecto los últimos 30 días |
 
+### Asistente (público)
+| Método | Endpoint | Acceso | Descripción |
+|--------|----------|--------|-------------|
+| POST | `/api/asistente` | Público | Pregunta en lenguaje natural sobre servicios, precios, horario, días cerrados y huecos libres. El cuerpo lleva `mensaje` y el `historial` de la conversación (máx. 10 turnos). Devuelve la respuesta y el consumo de tokens del turno. Limitado a 10 peticiones/hora por IP; 503 si el proveedor falla o la cuota está agotada; 404 si el asistente está apagado |
+
 ### Documentación (público)
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
@@ -274,6 +288,7 @@ La API queda disponible en `http://localhost:8080` (Swagger UI en `/swagger-ui.h
     * `FRONTEND_URL`: URL del frontend para los enlaces de los correos (default `http://localhost:4200`).
     * `CORS_ALLOWED_ORIGINS` *(solo perfil `prod`)*: orígenes permitidos separados por coma. El perfil `dev` ya permite `http://localhost:4200`.
     * `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` *(opcionales)*: almacén de objetos para las imágenes. **Sin ellas se escribe en el disco local y la aplicación arranca igual**, así que este repo se puede clonar y ejecutar sin cuenta en ningún servicio externo. La service key salta las políticas de seguridad de fila, así que vive solo en el servidor: nunca en un frontend, nunca en un commit. Con el perfil `prod` son **obligatorias**: sin ellas la aplicación no arranca.
+    * `ASISTENTE_MODELO` / `GEMINI_API_KEY` *(opcionales)*: encienden el asistente conversacional. Van **las dos juntas**: `ASISTENTE_MODELO=google-genai` y la API key de [Google AI Studio](https://aistudio.google.com/apikey). Sin ellas el asistente no se despliega y el resto del API funciona igual.
 
     *(El horario laboral se puede ajustar con `peluqueria.horario.apertura` y `peluqueria.horario.cierre`; por defecto 09:00-20:00.)*
 

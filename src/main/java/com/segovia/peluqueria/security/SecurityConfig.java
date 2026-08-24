@@ -62,6 +62,12 @@ public class SecurityConfig {
                         // Almacen local de desarrollo: en produccion las fotos las sirve
                         // Supabase Storage y este handler no se registra (ver AlmacenConfig).
                         .requestMatchers(HttpMethod.GET, "/media/**").permitAll()
+                        // El asistente es publico porque se pregunta por precios y horarios
+                        // ANTES de registrarse. Sus herramientas son de solo lectura y ninguna
+                        // devuelve datos de clientes, asi que no expone nada personal; lo que
+                        // si expone a anonimos es la disponibilidad y la lista de peluqueros,
+                        // que por el API REST piden login. Va limitado por IP en RateLimitFilter.
+                        .requestMatchers(HttpMethod.POST, "/api/asistente").permitAll()
 
                         .requestMatchers(HttpMethod.POST, "/api/servicios").hasRole("ADMIN")
                         // La regla de POST de arriba es exacta y no cubre las subrutas.
