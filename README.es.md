@@ -355,7 +355,8 @@ cd observabilidad && docker compose -f compose.yaml -f compose.local.yaml up -d
 Dos cosas que conviene saber antes de leer los paneles:
 
 * **Un contador no existe hasta que ocurre.** Micrometer solo publica un contador después de su primer incremento, y eso es lo que evita que el endpoint sirva cientos de series a cero. Un panel de negocio vacío significa que todavía no ha pasado nada, no que esté roto.
-* **Los dos paneles del asistente son los únicos sin verificar contra datos reales.** Todo lo demás se comprobó consulta por consulta contra un backend levantado. Esos dos necesitan una API key de Gemini, y en local el asistente está apagado. Sus nombres de métrica vienen de Spring AI (`gen_ai.client.token.usage`, `gen_ai.client.operation.duration`); si con el asistente encendido siguen vacíos, un `curl` al endpoint y un `grep gen_ai` dan el nombre real.
+* **Todos los paneles se comprobaron consulta por consulta contra producción.** Dos hubo que corregirlos al ver la salida real, porque los nombres de métrica de Spring AI no son los que sugiere su documentación: el medidor de tokens es un **contador** (`gen_ai_client_token_usage_total`, no un `_sum`) y el timer es `gen_ai_client_operation_seconds` **sin buckets**, y por eso el asistente no tiene percentiles y muestra media y peor caso.
+* **Una pregunta de cliente son varias llamadas al modelo, no una.** Un solo «¿cuánto cuesta un corte?» dejó `gen_ai_client_operation_seconds_count = 4`: el modelo pide una herramienta, recibe el resultado y vuelve a llamar. Importa para la cuota, porque el tier gratuito limita *peticiones*: ~1500/día son unas **375 preguntas de cliente**, no 1500. Para eso está la serie «llamadas al modelo por hora».
 
 ## Frontend
 

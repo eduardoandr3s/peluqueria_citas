@@ -527,11 +527,11 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (gen_ai_token_type) (increase(gen_ai_client_token_usage_sum[1h]))",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
+          "expr": "sum by (gen_ai_token_type) (increase(gen_ai_client_token_usage_total{gen_ai_token_type=~\"input|output\"}[1h]))",
           "legendFormat": "{{gen_ai_token_type}}"
         }
       ],
@@ -556,11 +556,11 @@
           "sort": "desc"
         }
       },
-      "description": "Consumo del tier gratuito de Gemini. Las publica Spring AI sola en cuanto hay un MeterRegistry; nadie escribio este contador."
+      "description": "Consumo del tier gratuito de Gemini. Nombres comprobados contra produccion: la metrica es un contador (_total), no un histograma. Se excluye la etiqueta total, que es la suma de las otras dos y duplicaria el grafico."
     },
     {
       "type": "timeseries",
-      "title": "Asistente: latencia p95",
+      "title": "Asistente: latencia y llamadas al modelo",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -574,12 +574,30 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum(rate(gen_ai_client_operation_duration_seconds_bucket[$__rate_interval])) by (le))",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "legendFormat": "p95"
+          "expr": "sum(gen_ai_client_operation_seconds_sum) / sum(gen_ai_client_operation_seconds_count)",
+          "legendFormat": "media por llamada"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(gen_ai_client_operation_seconds_max)",
+          "legendFormat": "peor caso"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(gen_ai_client_operation_seconds_count[1h]))",
+          "legendFormat": "llamadas al modelo por hora"
         }
       ],
       "fieldConfig": {
@@ -604,7 +622,7 @@
           "sort": "desc"
         }
       },
-      "description": "Una pregunta son dos llamadas al modelo (una para pedir la herramienta y otra con su resultado), asi que un par de segundos es lo normal."
+      "description": "Spring AI publica un timer sin buckets, asi que aqui no hay percentiles: se muestran la media acumulada y el peor caso. 'Llamadas al modelo' es el dato que de verdad importa para la cuota: una sola pregunta del cliente son varias llamadas, porque el modelo pide una herramienta, se le devuelve el resultado y vuelve a llamar."
     },
     {
       "type": "timeseries",
