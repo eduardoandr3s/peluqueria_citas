@@ -131,6 +131,20 @@
 			<groupId>org.springframework.ai</groupId>
 			<artifactId>spring-ai-starter-model-google-genai</artifactId>
 		</dependency>
+		<!-- Observabilidad. Actuator aporta health (lo usa el health check de Render) y el
+		     endpoint /actuator/prometheus, que es de donde tira Prometheus. El registry de
+		     Micrometer es el que traduce los contadores a formato Prometheus: sin el, el
+		     endpoint no existe aunque Actuator este. Las metricas de tokens del asistente
+		     salen solas, porque Spring AI ya publica observaciones y su autoconfiguracion
+		     las convierte en metricas en cuanto hay un MeterRegistry. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-registry-prometheus</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>com.stripe</groupId>
 			<artifactId>stripe-java</artifactId>

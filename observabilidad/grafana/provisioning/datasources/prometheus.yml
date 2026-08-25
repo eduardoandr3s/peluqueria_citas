@@ -1,0 +1,11 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    # Nombre del servicio en el compose, no localhost: Grafana lo resuelve dentro de la red
+    # de Docker. Con localhost buscaria dentro de su propio contenedor y no encontraria nada.
+    url: http://prometheus:9090
+    isDefault: true
+    uid: prometheus

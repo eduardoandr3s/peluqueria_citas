@@ -1,0 +1,20 @@
+# Override para mirar el dashboard contra el backend que corre en tu maquina:
+#
+#   docker compose -f compose.yaml -f compose.local.yaml up -d
+#
+# Existe por el problema del huevo y la gallina: sin esto no se puede ver un panel hasta que
+# produccion tenga METRICAS_TOKEN configurado y desplegado. Ademas las metricas de negocio en
+# local se pueden provocar a voluntad (agendar una cita y ver subir el contador), y en
+# produccion hay que esperar a que un cliente lo haga.
+services:
+  prometheus:
+    volumes:
+      - ./prometheus/prometheus.local.yml:/etc/prometheus/prometheus.local.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.local.yml
+      # Hay que repetirlo: al sustituir el command se pierde el de la imagen, y con el la
+      # ruta de la base de datos de series temporales.
+      - --storage.tsdb.path=/prometheus
+    extra_hosts:
+      # En Linux host.docker.internal no existe por defecto; esto lo apunta al host.
+      - "host.docker.internal:host-gateway"

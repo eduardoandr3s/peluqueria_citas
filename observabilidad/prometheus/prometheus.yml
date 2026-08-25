@@ -1,0 +1,21 @@
+# Prometheus local scrapeando el backend de produccion en Render.
+global:
+  # 30s en vez de los 15s habituales: el objetivo esta en internet y no en la red local, y
+  # esta resolucion sobra para lo que se mira aqui.
+  scrape_interval: 30s
+  scrape_timeout: 10s
+
+scrape_configs:
+  - job_name: peluqueria-prod
+    scheme: https
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["peluqueria-citas-zbxb.onrender.com"]
+        labels:
+          entorno: produccion
+    # El endpoint exige este token (ver MetricasTokenAuthorizationManager). Se lee de un
+    # fichero para que no acabe en git, y Grafana lo muestra oculto en la pagina de config.
+    http_headers:
+      X-Metrics-Token:
+        files:
+          - /etc/prometheus/token

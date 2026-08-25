@@ -66,7 +66,8 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 * **Manejo global de excepciones:** `@RestControllerAdvice` con handlers específicos para validación (400), no encontrado (404), acceso denegado (403), conflictos (409) y un handler genérico (500) que no expone detalles internos. Incluye logging con SLF4J.
 * **Documentación OpenAPI / Swagger UI:** generada automáticamente con springdoc-openapi, disponible en `/swagger-ui.html` y `/v3/api-docs`.
 * **Perfiles de configuración:** entornos `dev` y `prod` separados. El esquema se gestiona con **migraciones Flyway** (`src/main/resources/db/migration/`). Con el perfil `prod` la aplicación **se niega a arrancar** sin credenciales de almacén en vez de caer al disco local: en un contenedor efímero ese fallo es silencioso —las subidas funcionan y desaparecen en el siguiente despliegue—.
-* **Suite de tests (298 tests):** 274 tests unitarios que cubren la lógica de negocio sin Spring context ni base de datos, más 24 tests de integración con **Testcontainers** (PostgreSQL real en Docker) que cubren autenticación, reglas de ownership, estadísticas, pagos y el flujo completo del webhook de Stripe con verificación de firma real.
+* **Observabilidad (Actuator + Prometheus + Grafana):** `/actuator/prometheus` publica métricas de JVM, HTTP, pool de conexiones y **de negocio**: citas por estado y por servicio, pagos, altas, recordatorios, intentos de recuperación de contraseña y consumo de tokens del asistente. Los contadores de negocio se alimentan de los **eventos de dominio que ya existían para los correos**, así que no se modificó ningún service para medir, y cuentan en `AFTER_COMMIT`, porque una cita cuyo insert hizo rollback no es una cita. Tres decisiones son el diseño: solo se exponen `health` y `prometheus` y Spring Security cierra el resto con `denyAll`, porque `env`/`beans`/`configprops` volcarían la configuración entera con las claves de Stripe y de Gemini dentro; el endpoint de métricas se protege con un **token en cabecera** y no con un JWT, porque un scraper que corre cada 30 segundos no puede renovar uno que caduca; y el **indicador de correo no cuenta para el health**, porque Actuator lo activa solo por tener el starter de mail y un hipo del SMTP pondría el health global en `DOWN` — Render lee ese endpoint, así que un problema de correo reiniciaría en bucle un backend cuyas citas y pagos funcionan perfectamente.
+* **Suite de tests (310 tests):** 280 tests unitarios que cubren la lógica de negocio sin Spring context ni base de datos, más 30 tests de integración con **Testcontainers** (PostgreSQL real en Docker) que cubren autenticación, reglas de ownership, estadísticas, pagos y el flujo completo del webhook de Stripe con verificación de firma real.
 
 ## Estructura del proyecto
 
@@ -90,9 +91,9 @@ Todos los módulos de negocio siguen el mismo esquema: entidad JPA, controller, 
 
 ## Tests
 
-**298 tests** se ejecutan en CI en cada push (GitHub Actions).
+**310 tests** se ejecutan en CI en cada push (GitHub Actions).
 
-### Tests unitarios (246)
+### Tests unitarios (280)
 
 Cubren toda la lógica de negocio sin Spring context ni base de datos (pocos segundos):
 
@@ -115,6 +116,7 @@ Cubren toda la lógica de negocio sin Spring context ni base de datos (pocos seg
 | PasswordResetServiceTest | 7 | Solicitud, restablecimiento, expiración, anti-enumeración |
 | PeluqueroServiceTest | 7 | CRUD de peluqueros, soft delete |
 | SupabaseStorageAlmacenTest | 7 | Llamadas REST al almacén con `MockRestServiceServer`: subir, borrar, firmar URL, y que las claves con carpeta no se escapan |
+| MetricasNegocioListenerTest | 6 | Contadores de negocio: una métrica por concepto con `estado`/`servicio` como etiquetas, un servicio sin nombre que cae en un valor por defecto en vez de reventar, y que **ninguna métrica lleva el nombre ni el correo de un cliente** — sería un dato personal fuera de sitio y una serie temporal nueva por persona |
 | AlmacenConfigTest | 5 | Elección de adaptador según el perfil: con `prod` y sin credenciales no arranca, en `dev` cae al disco |
 | RecordatorioCitaSchedulerTest | 5 | Recordatorio 24h: envío único, ignora anuladas/ya notificadas, Clock inyectable |
 | CustomUserDetailsServiceTest | 4 | Carga de usuario, roles, estado |
@@ -127,7 +129,7 @@ Cubren toda la lógica de negocio sin Spring context ni base de datos (pocos seg
 ./mvnw test -Dtest='!*IntegrationTest'
 ```
 
-### Tests de integración (24, Testcontainers)
+### Tests de integración (30, Testcontainers)
 
 Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Docker (`@ServiceConnection`), con las migraciones Flyway aplicadas:
 
@@ -136,6 +138,7 @@ Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Dock
 * **PagosIntegrationTest** (10) — listado de pagos del panel (paginación, filtros de rango y estado, solo ADMIN) y el recibo en PDF por HTTP: el dueño recibe un PDF de verdad como adjunto, un ADMIN el de cualquiera, otro cliente 403 y un pago no cobrado 409.
 * **OwnershipIntegrationTest** (2) — un usuario no puede leer (GET) ni editar (PUT) la cita de otro (403); `/api/usuarios/me` nunca expone la contraseña.
 * **AsistenteApagadoIntegrationTest** (3) — con el asistente apagado (el valor por defecto) la aplicación **arranca igual** y su ruta responde **404 y no 500**, que es lo que permite al cliente distinguir «no está desplegado» de «ha fallado». El tercero fija el contrapunto: una ruta inexistente que **no** es pública responde 403, porque Spring Security corta antes de llegar al dispatcher y no confirma a un anónimo qué rutas existen.
+* **MetricasIntegrationTest** (6) — quién puede leer qué de Actuator: `prometheus` responde 403 sin token, 403 con un token equivocado y 200 con el bueno; `env`, `beans`, `configprops` y `loggers` siguen cerrados **incluso con el token válido**; `health` es público, no cuenta nada de dentro y **aguanta un SMTP roto** (este cazó un fallo de verdad: el indicador de correo ponía el health en `DOWN`, y eso habría hecho que Render reiniciara el backend en bucle). El sexto publica un evento de dominio y encuentra `peluqueria_citas_total` en el scrape real, que es el único sitio donde se comprueban juntos el nombre de la métrica en el código y el que consulta el dashboard.
 * **AuthIntegrationTest** (1) — flujo completo de registro/login por HTTP.
 
 > Ningún test agenda «mañana»: un helper busca el **próximo lunes**, así que una ejecución en sábado no puede caer en un día cerrado y fallar por algo que no es lo que se está probando.
@@ -235,6 +238,13 @@ Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Dock
 |--------|----------|--------|-------------|
 | POST | `/api/asistente` | Público | Pregunta en lenguaje natural sobre servicios, precios, horario, días cerrados y huecos libres. El cuerpo lleva `mensaje` y el `historial` de la conversación (máx. 10 turnos). Devuelve la respuesta y el consumo de tokens del turno. Limitado a 10 peticiones/hora por IP; 503 si el proveedor falla o la cuota está agotada; 404 si el asistente está apagado |
 
+### Observabilidad
+| Método | Endpoint | Acceso | Descripción |
+|--------|----------|--------|-------------|
+| GET | `/actuator/health` | Público | Señal de vida para el health check de Render. Sin detalles, sin componentes, y el indicador de correo no cuenta para él |
+| GET | `/actuator/prometheus` | Token | Métricas en formato Prometheus. Exige la cabecera `X-Metrics-Token` con el valor de `METRICAS_TOKEN`; sin la variable puesta, el endpoint está cerrado para todos |
+| — | `/actuator/**` | Denegado | Todo lo demás es `denyAll`, incluidos `env` y `configprops` |
+
 ### Documentación (público)
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
@@ -290,6 +300,8 @@ La API queda disponible en `http://localhost:8080` (Swagger UI en `/swagger-ui.h
     * `CORS_ALLOWED_ORIGINS` *(solo perfil `prod`)*: orígenes permitidos separados por coma. El perfil `dev` ya permite `http://localhost:4200`.
     * `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` *(opcionales)*: almacén de objetos para las imágenes. **Sin ellas se escribe en el disco local y la aplicación arranca igual**, así que este repo se puede clonar y ejecutar sin cuenta en ningún servicio externo. La service key salta las políticas de seguridad de fila, así que vive solo en el servidor: nunca en un frontend, nunca en un commit. Con el perfil `prod` son **obligatorias**: sin ellas la aplicación no arranca.
     * `ASISTENTE_MODELO` / `GEMINI_API_KEY` *(opcionales)*: encienden el asistente conversacional. Van **las dos juntas**: `ASISTENTE_MODELO=google-genai` y la API key de [Google AI Studio](https://aistudio.google.com/apikey). Sin ellas el asistente no se despliega y el resto del API funciona igual.
+    * `GEMINI_MODEL` *(opcional)*: id del modelo, por defecto `gemini-3.6-flash`. Conviene saber que existe, porque Google retira ids más rápido de lo que los documenta: `gemini-2.5-flash` responde **404 `no longer available to new users`** a una clave recién creada mientras la página de deprecaciones lo sigue dando por activo y sin fecha de cierre. El síntoma es un 503 en `/api/asistente`, y esta variable lo arregla sin volver a desplegar.
+    * `METRICAS_TOKEN` *(opcional)*: token que exige `/actuator/prometheus` en la cabecera `X-Metrics-Token`. Sin él el endpoint queda cerrado para todos, que es el fallo que se quiere: olvidar la variable esconde las métricas en vez de publicarlas.
 
     *(El horario laboral se puede ajustar con `peluqueria.horario.apertura` y `peluqueria.horario.cierre`; por defecto 09:00-20:00.)*
 
@@ -311,6 +323,39 @@ La API queda disponible en `http://localhost:8080` (Swagger UI en `/swagger-ui.h
 * **Email:** los correos transaccionales salen por el relay SMTP de un proveedor en el puerto **2525** (el tier Free de Render bloquea los puertos SMTP salientes 25/465/587).
 * **Frontends:** Firebase Hosting (ver abajo).
 * **CI:** GitHub Actions ejecuta la suite completa — tests unitarios + integración con Testcontainers — en cada push y pull request.
+
+## Observabilidad
+
+Las métricas viven en un **Prometheus + Grafana local** que scrapea producción. No están desplegados en Render: su tier gratuito ya está al límite de sus 750 h/mes con el backend y el cronjob que lo mantiene despierto. La contrapartida es que Prometheus solo recoge datos mientras el stack está levantado, así que las gráficas tienen agujeros con la forma de las horas que el portátil estuvo apagado.
+
+```
+Render (producción)                     Tu máquina
+┌──────────────────────┐  scrape +    ┌──────────────┐     ┌─────────┐
+│ /actuator/prometheus │◀─── token ───│  Prometheus  │────▶│ Grafana │
+└──────────────────────┘    30s       └──────────────┘     └─────────┘
+```
+
+```bash
+# 1. En Render, poner METRICAS_TOKEN con un valor largo y aleatorio
+# 2. El mismo valor aquí (sin salto de línea: la cabecera tiene que coincidir exacta)
+echo -n 'EL_TOKEN' > observabilidad/prometheus/token
+# 3. Levantar
+cd observabilidad && docker compose up -d
+# 4. http://localhost:3000 — usuario admin, contraseña admin
+```
+
+El dashboard (`observabilidad/grafana/dashboards/peluqueria.json`) se **provisiona desde el repositorio**, no vive en un volumen de Docker: sobrevive a un `docker compose down -v` y se puede revisar en un diff. El datasource también, así que no hay nada que configurar a mano después de arrancar.
+
+Para mirarlo contra tu propio backend en vez de contra producción — útil porque en local las métricas de negocio se pueden provocar a voluntad y en producción hay que esperar a que un cliente lo haga:
+
+```bash
+cd observabilidad && docker compose -f compose.yaml -f compose.local.yaml up -d
+```
+
+Dos cosas que conviene saber antes de leer los paneles:
+
+* **Un contador no existe hasta que ocurre.** Micrometer solo publica un contador después de su primer incremento, y eso es lo que evita que el endpoint sirva cientos de series a cero. Un panel de negocio vacío significa que todavía no ha pasado nada, no que esté roto.
+* **Los dos paneles del asistente son los únicos sin verificar contra datos reales.** Todo lo demás se comprobó consulta por consulta contra un backend levantado. Esos dos necesitan una API key de Gemini, y en local el asistente está apagado. Sus nombres de métrica vienen de Spring AI (`gen_ai.client.token.usage`, `gen_ai.client.operation.duration`); si con el asistente encendido siguen vacíos, un `curl` al endpoint y un `grep gen_ai` dan el nombre real.
 
 ## Frontend
 

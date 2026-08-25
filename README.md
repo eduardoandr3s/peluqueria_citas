@@ -66,7 +66,8 @@ Backend for a complete appointment booking and management system for a hair salo
 * **Global exception handling:** `@RestControllerAdvice` with specific handlers for validation (400), not found (404), access denied (403), conflicts (409) and a generic handler (500) that never leaks internal details. Includes SLF4J logging.
 * **OpenAPI / Swagger UI documentation:** auto-generated with springdoc-openapi, available at `/swagger-ui.html` and `/v3/api-docs`.
 * **Configuration profiles:** separate `dev` and `prod` environments. Schema is managed with **Flyway migrations** (`src/main/resources/db/migration/`). Under the `prod` profile the app **refuses to start** without storage credentials rather than falling back to local disk: on an ephemeral container that failure is silent — uploads succeed and vanish on the next deploy.
-* **Test suite (298 tests):** 274 unit tests covering the business logic without Spring context or database, plus 24 integration tests with **Testcontainers** (real PostgreSQL in Docker) covering authentication, ownership rules, statistics, payments and the full Stripe webhook flow with real signature verification.
+* **Observability (Actuator + Prometheus + Grafana):** `/actuator/prometheus` publishes JVM, HTTP, connection-pool and **business** metrics: appointments by state and service, payments, sign-ups, reminders, password-reset attempts and the assistant's token usage. The business counters are fed by the **domain events that already existed for the emails**, so no service was modified to measure it — and they count in `AFTER_COMMIT`, because an appointment whose insert rolled back is not an appointment. Three decisions are the design: only `health` and `prometheus` are exposed and Spring Security `denyAll`s everything else, since `env`/`beans`/`configprops` would dump the whole configuration with the Stripe and Gemini keys in it; the metrics endpoint is guarded by a **token in a header** rather than a JWT, because a scraper that runs every 30 seconds cannot renew one that expires; and the **mail health indicator is off**, because Actuator enables it just for having the mail starter and an SMTP hiccup would put the global health in `DOWN` — Render reads that endpoint, so a mail problem would have it restart a backend whose appointments and payments work perfectly.
+* **Test suite (310 tests):** 280 unit tests covering the business logic without Spring context or database, plus 30 integration tests with **Testcontainers** (real PostgreSQL in Docker) covering authentication, ownership rules, statistics, payments and the full Stripe webhook flow with real signature verification.
 
 ## Project Structure
 
@@ -90,9 +91,9 @@ Each business module follows the same layout: JPA entity, controller, service, r
 
 ## Tests
 
-**298 tests** run in CI on every push (GitHub Actions).
+**310 tests** run in CI on every push (GitHub Actions).
 
-### Unit tests (246)
+### Unit tests (280)
 
 They cover all business logic without Spring context or database (a few seconds):
 
@@ -115,6 +116,7 @@ They cover all business logic without Spring context or database (a few seconds)
 | PasswordResetServiceTest | 7 | Request, reset, expiration, anti-enumeration |
 | PeluqueroServiceTest | 7 | Barber CRUD, soft delete |
 | SupabaseStorageAlmacenTest | 7 | Storage REST calls with `MockRestServiceServer`: upload, delete, URL signing, and that keys with a folder are not escaped |
+| MetricasNegocioListenerTest | 6 | Business counters: one metric per concept with `estado`/`servicio` as labels, a missing service name falling back instead of throwing, and that **no metric ever carries a customer's name or email** — a personal data leak and a new time series per person |
 | AlmacenConfigTest | 5 | Adapter selection per profile: refuses to start under `prod` without credentials, falls back to disk in `dev` |
 | RecordatorioCitaSchedulerTest | 5 | 24h reminder: sends once, skips cancelled/already-notified, injectable Clock |
 | CustomUserDetailsServiceTest | 4 | User loading, roles, status |
@@ -127,7 +129,7 @@ They cover all business logic without Spring context or database (a few seconds)
 ./mvnw test -Dtest='!*IntegrationTest'
 ```
 
-### Integration tests (24, Testcontainers)
+### Integration tests (30, Testcontainers)
 
 They boot the full application against a **real PostgreSQL** started in Docker (`@ServiceConnection`), with Flyway migrations applied:
 
@@ -136,6 +138,7 @@ They boot the full application against a **real PostgreSQL** started in Docker (
 * **PagosIntegrationTest** (10) — payment listing for the dashboard (pagination, range and status filters, ADMIN only) and the PDF receipt over HTTP: the owner gets a real PDF as an attachment, an ADMIN gets anyone's, someone else gets 403, an uncollected payment 409.
 * **OwnershipIntegrationTest** (2) — a user cannot read (GET) or edit (PUT) someone else's appointment (403); `/api/usuarios/me` never exposes the password.
 * **AsistenteApagadoIntegrationTest** (3) — with the assistant switched off (the default) the app **still starts** and its route answers **404, not 500**, which is what lets the client tell "not deployed" from "failed". The third pins the counterpoint: an unknown route that is **not** public answers 403, because Spring Security cuts in before the dispatcher and does not confirm to an anonymous caller which routes exist.
+* **MetricasIntegrationTest** (6) — who can read what from Actuator: `prometheus` answers 403 with no token, with a wrong token, and 200 with the right one; `env`, `beans`, `configprops` and `loggers` stay closed **even with the valid token**; `health` is public, shows no internals and **survives a broken SMTP** (this one caught a real bug: the mail indicator was putting health in `DOWN`, which would have had Render restart the backend in a loop). The sixth publishes a domain event and finds `peluqueria_citas_total` in the actual scrape — the only place where the metric name in the code and the one the dashboard queries are checked together.
 * **AuthIntegrationTest** (1) — full register/login flow over HTTP.
 
 > Tests never book "tomorrow": a helper picks the **next Monday**, so a run on a Saturday cannot land on a closed day and fail for reasons unrelated to what is being tested.
@@ -235,6 +238,13 @@ They boot the full application against a **real PostgreSQL** started in Docker (
 |--------|----------|--------|-------------|
 | POST | `/api/asistente` | Public | Natural-language question about services, prices, opening hours, closed days and free slots. The body carries `mensaje` plus the conversation `historial` (max. 10 turns). Returns the answer and the turn's token usage. Capped at 10 requests/hour per IP; 503 if the provider fails or the quota is exhausted; 404 if the assistant is switched off |
 
+### Observability
+| Method | Endpoint | Access | Description |
+|--------|----------|--------|-------------|
+| GET | `/actuator/health` | Public | Liveness for Render's health check. No details, no components, and the mail indicator does not count towards it |
+| GET | `/actuator/prometheus` | Token | Metrics in Prometheus format. Requires the `X-Metrics-Token` header matching `METRICAS_TOKEN`; without the variable set the endpoint is closed to everyone |
+| — | `/actuator/**` | Denied | Everything else is `denyAll`, `env` and `configprops` included |
+
 ### Documentation (public)
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -291,6 +301,7 @@ The API is available at `http://localhost:8080` (Swagger UI at `/swagger-ui.html
     * `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` *(optional)*: object storage for images. **Without them the app writes to local disk and starts fine**, so you can clone and run this repo without an account on any external service. The service key bypasses row-level security, so it lives only on the server — never in a frontend, never in a commit. Under the `prod` profile these are **required**: the app refuses to start without them.
 
     * `ASISTENTE_MODELO` / `GEMINI_API_KEY` *(optional)*: switch the conversational assistant on. They go **together**: `ASISTENTE_MODELO=google-genai` plus an API key from [Google AI Studio](https://aistudio.google.com/apikey). Without them the assistant is not deployed and the rest of the API works exactly the same.
+    * `METRICAS_TOKEN` *(optional)*: token that `/actuator/prometheus` requires in the `X-Metrics-Token` header. Without it the endpoint is closed to everyone, which is the intended failure mode: forgetting the variable hides the metrics instead of publishing them.
     * `GEMINI_MODEL` *(optional)*: model id, default `gemini-3.6-flash`. Worth knowing it exists, because Google retires ids faster than it documents them: `gemini-2.5-flash` answers **404 `no longer available to new users`** to a freshly created key while the deprecation page still lists it as active with no shutdown date. The symptom is a 503 from `/api/asistente`, and this variable fixes it without a redeploy.
 
     *(Business hours can be adjusted with `peluqueria.horario.apertura` and `peluqueria.horario.cierre`; default 09:00-20:00.)*
@@ -313,6 +324,39 @@ The API is available at `http://localhost:8080` (Swagger UI at `/swagger-ui.html
 * **Email:** transactional emails are sent through a provider's SMTP relay on port **2525** (Render's Free tier blocks outbound SMTP ports 25/465/587).
 * **Frontends:** Firebase Hosting (see below).
 * **CI:** GitHub Actions runs the full suite — unit + Testcontainers integration tests — on every push and pull request.
+
+## Observability
+
+Metrics live in **Prometheus + Grafana running locally** and scraping production. They are not deployed to Render: its free tier is already at the limit of its 750 h/month with the backend and the cron job that keeps it awake. The trade-off is that Prometheus only collects while the stack is up, so the graphs have gaps shaped like the hours the laptop was off.
+
+```
+Render (production)                    Your machine
+┌──────────────────────┐   scrape +   ┌──────────────┐     ┌─────────┐
+│ /actuator/prometheus │◀─── token ───│  Prometheus  │────▶│ Grafana │
+└──────────────────────┘    30s       └──────────────┘     └─────────┘
+```
+
+```bash
+# 1. In Render, set METRICAS_TOKEN to a long random value
+# 2. Same value here (no trailing newline: the header must match exactly)
+echo -n 'THE_TOKEN' > observabilidad/prometheus/token
+# 3. Up
+cd observabilidad && docker compose up -d
+# 4. http://localhost:3000 — user admin, password admin
+```
+
+The dashboard (`observabilidad/grafana/dashboards/peluqueria.json`) is **provisioned from the repository**, not stored in a Docker volume: it survives `docker compose down -v` and shows up in diffs. The datasource is provisioned too, so there is nothing to click after starting.
+
+To try it against your own backend instead of production — useful because business metrics can be triggered on demand in local, while in production you wait for a real customer:
+
+```bash
+cd observabilidad && docker compose -f compose.yaml -f compose.local.yaml up -d
+```
+
+Two things worth knowing before reading the panels:
+
+* **A counter does not exist until it happens.** Micrometer only publishes a counter after its first increment, which is what keeps the endpoint from serving hundreds of zeroed series. A business panel is empty because nothing has happened yet, not because it is broken.
+* **The two assistant panels are the only ones not verified against real data.** Everything else was checked query by query against a running backend. Those two need a Gemini API key, and the assistant is off in local. Their metric names come from Spring AI (`gen_ai.client.token.usage`, `gen_ai.client.operation.duration`); if a panel stays empty with the assistant live, `curl` the endpoint and `grep gen_ai` to see the real name.
 
 ## Frontend
 

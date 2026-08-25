@@ -1,0 +1,53 @@
+# Prometheus + Grafana en local, apuntando al backend de produccion.
+#
+# Viven aparte del compose.yaml de la raiz a proposito: ese levanta la aplicacion para
+# desarrollar, y esto es una herramienta de observacion que se enciende solo cuando se quiere
+# mirar. Tampoco pueden vivir en Render: el tier gratuito ya esta al limite de sus 750 h/mes
+# con el backend y el cronjob que lo mantiene despierto.
+#
+# Consecuencia de que Prometheus corra aqui: solo recoge datos mientras esto este levantado.
+# Las graficas tienen agujeros con la forma de las horas que el portatil estuvo apagado, y es
+# lo esperado, no un fallo.
+#
+#   1. echo -n 'EL_TOKEN_DE_RENDER' > prometheus/token
+#   2. docker compose up -d
+#   3. http://localhost:3000  (usuario admin, contrasena admin)
+services:
+  prometheus:
+    image: prom/prometheus:v3.6.0
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # El token va en un fichero montado y no en el YAML: asi la configuracion se puede
+      # commitear y el token no. Esta en .gitignore.
+      - ./prometheus/token:/etc/prometheus/token:ro
+      - promdata:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    depends_on:
+      - prometheus
+    environment:
+      # Local y sin exponer: credenciales de conveniencia. Si esto se publicara alguna vez,
+      # lo primero que hay que cambiar es esto.
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # Sin telemetria a Grafana Labs.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      # El datasource y el dashboard se provisionan desde ficheros: el dashboard vive en git
+      # y no dentro de un volumen de Docker, que es lo que hace que sobreviva a un docker
+      # compose down -v y que se pueda revisar en un diff.
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+volumes:
+  promdata:
+  grafanadata:

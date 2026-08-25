@@ -23,12 +23,15 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final MetricasTokenAuthorizationManager metricasToken;
 
     @Value("${cors.allowed-origins}")
     private List<String> allowedOrigins;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
+                          MetricasTokenAuthorizationManager metricasToken) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+        this.metricasToken = metricasToken;
     }
 
     @Bean
@@ -112,6 +115,20 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/pagos/**").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/pagos/manual").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/pagos/*/reembolsar").hasRole("ADMIN")
+
+                        // Observabilidad. health es publico porque lo consulta el health check de
+                        // Render, y por eso no muestra detalles (ver management.endpoint.health
+                        // en application.properties): confirmar que la aplicacion vive es
+                        // inofensivo, enumerar sus componentes no.
+                        .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
+                        // Las metricas las lee Prometheus con un token en cabecera, no con un
+                        // JWT: un scraper no puede renovar un token que caduca.
+                        .requestMatchers(HttpMethod.GET, "/actuator/prometheus").access(metricasToken)
+                        // Todo lo demas de actuator queda cerrado sin excepcion. Es la regla que
+                        // importa: env, beans y configprops filtrarian la configuracion entera,
+                        // credenciales incluidas, y esta linea los tapa aunque alguien los
+                        // exponga por error en las properties.
+                        .requestMatchers("/actuator/**").denyAll()
 
                         .anyRequest().authenticated()
                 )
