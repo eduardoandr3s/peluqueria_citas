@@ -291,6 +291,7 @@ The API is available at `http://localhost:8080` (Swagger UI at `/swagger-ui.html
     * `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` *(optional)*: object storage for images. **Without them the app writes to local disk and starts fine**, so you can clone and run this repo without an account on any external service. The service key bypasses row-level security, so it lives only on the server — never in a frontend, never in a commit. Under the `prod` profile these are **required**: the app refuses to start without them.
 
     * `ASISTENTE_MODELO` / `GEMINI_API_KEY` *(optional)*: switch the conversational assistant on. They go **together**: `ASISTENTE_MODELO=google-genai` plus an API key from [Google AI Studio](https://aistudio.google.com/apikey). Without them the assistant is not deployed and the rest of the API works exactly the same.
+    * `GEMINI_MODEL` *(optional)*: model id, default `gemini-3.6-flash`. Worth knowing it exists, because Google retires ids faster than it documents them: `gemini-2.5-flash` answers **404 `no longer available to new users`** to a freshly created key while the deprecation page still lists it as active with no shutdown date. The symptom is a 503 from `/api/asistente`, and this variable fixes it without a redeploy.
 
     *(Business hours can be adjusted with `peluqueria.horario.apertura` and `peluqueria.horario.cierre`; default 09:00-20:00.)*
 
