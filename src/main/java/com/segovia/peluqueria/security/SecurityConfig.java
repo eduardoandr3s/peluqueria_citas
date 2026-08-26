@@ -62,6 +62,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/servicios", "/api/servicios/**").permitAll()
+                        // La galeria de trabajos es el escaparate: se ve sin cuenta, igual que
+                        // el catalogo. Solo la lectura; subir, ordenar y borrar es de ADMIN.
+                        .requestMatchers(HttpMethod.GET, "/api/galeria", "/api/galeria/**").permitAll()
                         // Almacen local de desarrollo: en produccion las fotos las sirve
                         // Supabase Storage y este handler no se registra (ver AlmacenConfig).
                         .requestMatchers(HttpMethod.GET, "/media/**").permitAll()
@@ -71,6 +74,10 @@ public class SecurityConfig {
                         // si expone a anonimos es la disponibilidad y la lista de peluqueros,
                         // que por el API REST piden login. Va limitado por IP en RateLimitFilter.
                         .requestMatchers(HttpMethod.POST, "/api/asistente").permitAll()
+
+                        .requestMatchers(HttpMethod.POST, "/api/galeria").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/galeria/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/galeria/**").hasRole("ADMIN")
 
                         .requestMatchers(HttpMethod.POST, "/api/servicios").hasRole("ADMIN")
                         // La regla de POST de arriba es exacta y no cubre las subrutas.

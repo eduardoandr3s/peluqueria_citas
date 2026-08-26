@@ -49,6 +49,7 @@ Backend for a complete appointment booking and management system for a hair salo
 * **Business-hours validation:** appointments can only be booked Monday to Saturday, 9:00-20:00, never in the past. Hours and closed weekdays are **configurable** via properties (`peluqueria.horario.apertura` / `peluqueria.horario.cierre` / `peluqueria.horario.dias-cerrados`).
 * **Closed days (holidays and one-off closures):** an ADMIN can block a specific date with an optional reason (`/api/dias-bloqueados`). A blocked day returns no slots and rejects bookings and reschedules with the reason in the message. `GET /api/citas/dias-cerrados` returns every closed day in a range — the fixed closed weekdays (Sunday) and the blocked dates, unified — so clients can render them as **unselectable** instead of letting the customer pick a day with no available times. Blocking a day that still has live appointments is rejected (409) rather than silently cancelling them.
 * **Image upload (catalog photos and avatars):** a single storage port (`AlmacenFicheros`) with two implementations — **Supabase Storage** over its REST API and local disk — so the project runs with no cloud account. Uploads are validated by **magic bytes** (the first bytes of the file), never by `Content-Type` or filename, since both are set by whoever uploads; the object key is generated server-side with a UUID, so a name like `../../etc/passwd.jpg` never reaches the store. Replacing a photo **deletes the previous object** instead of leaving orphans behind. The service catalog uses a **public** bucket and avatars a **private** one read through **short-lived signed URLs**, because a profile photo is personal data. Limits: 2 MB per file (**413** if the request exceeds it, **400** if the content is not a valid JPEG/PNG/WebP) and **502** if the store does not respond.
+* **Work gallery:** photos of the salon's work with **manual ordering**, in a public bucket (`galeria`) because they are promotional material. They are read **without an account**, like the catalog, and only an ADMIN uploads, reorders and deletes. Each photo stores **two keys**, the image and a thumbnail: the grid always renders the thumbnail and the full-size image is fetched only when a photo is opened, because the free Storage plan's limit is **bandwidth** and a grid served with full-size images multiplies it by ten. The thumbnail is generated client-side and travels in the same multipart — the server has 0.1 CPU in production and the browser scales for free — is validated by magic bytes just like the big one and, if it is missing, the response falls back to the full-size image instead of leaving a gap. Deleting a photo deletes **both objects**, not just the big one.
 * **The database stores the object key, not the URL** (`servicios.imagen_clave`, `usuarios.avatar_clave`). The URL is built on read, which is why switching bucket or provider — or turning a bucket private, as avatars did — is a configuration change and not a data migration.
 * **Conversational assistant (Spring AI + Gemini):** `POST /api/asistente` answers in natural language about services, prices, opening hours, holidays and free slots. It does not improvise: every fact comes from a **tool** (*tool calling*) that calls the real service, and even today's date is handed to it, because a model left to guess what day it is resolves "tomorrow" by inventing a date. Four decisions are the design:
     * **Read-only, which is what lets it be public.** No tool writes, and no tool returns customer data. A prompt injection therefore has nothing to break, and not a single name or phone number reaches the provider — which is exactly what makes a free tier usable when its terms reserve the right to train on prompts. If the assistant grew towards booking appointments, that premise collapses and the provider would have to change before the code did.
@@ -67,7 +68,7 @@ Backend for a complete appointment booking and management system for a hair salo
 * **OpenAPI / Swagger UI documentation:** auto-generated with springdoc-openapi, available at `/swagger-ui.html` and `/v3/api-docs`.
 * **Configuration profiles:** separate `dev` and `prod` environments. Schema is managed with **Flyway migrations** (`src/main/resources/db/migration/`). Under the `prod` profile the app **refuses to start** without storage credentials rather than falling back to local disk: on an ephemeral container that failure is silent — uploads succeed and vanish on the next deploy.
 * **Observability (Actuator + Prometheus + Grafana):** `/actuator/prometheus` publishes JVM, HTTP, connection-pool and **business** metrics: appointments by state and service, payments, sign-ups, reminders, password-reset attempts and the assistant's token usage. The business counters are fed by the **domain events that already existed for the emails**, so no service was modified to measure it — and they count in `AFTER_COMMIT`, because an appointment whose insert rolled back is not an appointment. Three decisions are the design: only `health` and `prometheus` are exposed and Spring Security `denyAll`s everything else, since `env`/`beans`/`configprops` would dump the whole configuration with the Stripe and Gemini keys in it; the metrics endpoint is guarded by a **token in a header** rather than a JWT, because a scraper that runs every 30 seconds cannot renew one that expires; and the **mail health indicator is off**, because Actuator enables it just for having the mail starter and an SMTP hiccup would put the global health in `DOWN` — Render reads that endpoint, so a mail problem would have it restart a backend whose appointments and payments work perfectly.
-* **Test suite (310 tests):** 280 unit tests covering the business logic without Spring context or database, plus 30 integration tests with **Testcontainers** (real PostgreSQL in Docker) covering authentication, ownership rules, statistics, payments and the full Stripe webhook flow with real signature verification.
+* **Test suite (329 tests):** 297 unit tests covering the business logic without Spring context or database, plus 32 integration tests with **Testcontainers** (real PostgreSQL in Docker) covering authentication, ownership rules, statistics, payments and the full Stripe webhook flow with real signature verification.
 
 ## Project Structure
 
@@ -79,6 +80,7 @@ com.segovia.peluqueria/
 ├── config/         # Cross-cutting config (async events, scheduling)
 ├── estadistica/    # Business statistics for the admin dashboard (ADMIN only)
 ├── exception/      # Global exception handling and shared exceptions
+├── galeria/        # Work gallery: photos with manual ordering and a separate thumbnail
 ├── notificacion/   # Domain events, email notifications and the 24h reminder scheduler
 ├── pago/           # Payments: Stripe PaymentIntents, webhooks, manual payments, refunds
 ├── peluquero/      # Barbers: CRUD and per-barber availability
@@ -91,9 +93,9 @@ Each business module follows the same layout: JPA entity, controller, service, r
 
 ## Tests
 
-**310 tests** run in CI on every push (GitHub Actions).
+**329 tests** run in CI on every push (GitHub Actions).
 
-### Unit tests (280)
+### Unit tests (297)
 
 They cover all business logic without Spring context or database (a few seconds):
 
@@ -107,6 +109,7 @@ They cover all business logic without Spring context or database (a few seconds)
 | AsistenteServiceTest | 9 | History mapped to the right role, token usage read back, and exhausted-quota detection versus any other failure (including a cyclic cause, which would hang the walk) |
 | RateLimitFilterTest | 8 | **Per-route independent quotas**: burning the assistant's does not leave password recovery without attempts. Plus per-IP quotas, `X-Forwarded-For` behind the proxy, and that it leaves other routes and methods alone |
 | ServicioServiceTest | 16 | CRUD, soft delete, catalog photo upload/replacement/removal |
+| GaleriaServiceTest | 17 | Gallery: uploads image and thumbnail to the public bucket, server-generated keys kept in separate folders per size, response falls back to the full-size image when there is no thumbnail, rejects non-images (thumbnail included), a new photo lands after the last one, and deleting removes **both** objects |
 | ReciboPdfGeneradorTest | 10 | Renders the **real PDF** with the production template and reads the text back with PDFBox: payment and appointment data, refund notice, "not an invoice" disclaimer, fixed decimal format |
 | ValidadorImagenTest | 10 | Magic-byte validation: real JPEG/PNG/WebP, lying `Content-Type`, lying extension, oversized and empty files, server-generated key |
 | JwtServiceTest | 9 | Token generation/extraction/validation, signatures, tokenVersion |
@@ -129,13 +132,14 @@ They cover all business logic without Spring context or database (a few seconds)
 ./mvnw test -Dtest='!*IntegrationTest'
 ```
 
-### Integration tests (30, Testcontainers)
+### Integration tests (32, Testcontainers)
 
 They boot the full application against a **real PostgreSQL** started in Docker (`@ServiceConnection`), with Flyway migrations applied:
 
 * **EstadisticasIntegrationTest** (5) — statistics over real data: default 30-day range, revenue by payment method, refunds excluded.
 * **WebhookIntegrationTest** (3) — end-to-end Stripe webhook: a signed `payment_intent.succeeded` event is verified with the **real Stripe SDK signature check**, the payment becomes `PAGADO` and the appointment is confirmed; duplicated events are processed only once (idempotency); invalid signatures get 400.
 * **PagosIntegrationTest** (10) — payment listing for the dashboard (pagination, range and status filters, ADMIN only) and the PDF receipt over HTTP: the owner gets a real PDF as an attachment, an ADMIN gets anyone's, someone else gets 403, an uncollected payment 409.
+* **GaleriaIntegrationTest** (2) — the gallery's asymmetry over HTTP: the listing is read **without a token**, while uploading, reordering and deleting return 403 with no token and as a client, and work as ADMIN. The second one covers what a service unit test cannot see: a photo uploaded without a thumbnail returns the full-size image in its place, and an executable renamed to `.jpg` still ends in 400 after going through a real multipart request.
 * **OwnershipIntegrationTest** (2) — a user cannot read (GET) or edit (PUT) someone else's appointment (403); `/api/usuarios/me` never exposes the password.
 * **AsistenteApagadoIntegrationTest** (3) — with the assistant switched off (the default) the app **still starts** and its route answers **404, not 500**, which is what lets the client tell "not deployed" from "failed". The third pins the counterpoint: an unknown route that is **not** public answers 403, because Spring Security cuts in before the dispatcher and does not confirm to an anonymous caller which routes exist.
 * **MetricasIntegrationTest** (6) — who can read what from Actuator: `prometheus` answers 403 with no token, with a wrong token, and 200 with the right one; `env`, `beans`, `configprops` and `loggers` stay closed **even with the valid token**; `health` is public, shows no internals and **survives a broken SMTP** (this one caught a real bug: the mail indicator was putting health in `DOWN`, which would have had Render restart the backend in a loop). The sixth publishes a domain event and finds `peluqueria_citas_total` in the actual scrape — the only place where the metric name in the code and the one the dashboard queries are checked together.
@@ -161,6 +165,16 @@ They boot the full application against a **real PostgreSQL** started in Docker (
 | POST | `/api/auth/logout` | Revoke the refresh token |
 
 > Password-reset endpoints are rate-limited per IP (Bucket4j): 5 requests every 15 minutes by default; exceeding it returns 429. Configurable via `RESET_EXPIRACION_MINUTOS`, `RATELIMIT_RESET_CAPACIDAD` and `RATELIMIT_RESET_VENTANA_MINUTOS`. The email link points to `FRONTEND_URL` + `/reset?token=...`.
+
+### Work gallery
+| Method | Endpoint | Access | Description |
+|--------|----------|--------|-------------|
+| GET | `/api/galeria` | Public | List the photos, already ordered |
+| POST | `/api/galeria` | ADMIN | Upload a photo at the end of the grid (`multipart/form-data`: `imagen`, optional `miniatura`, optional `titulo`) |
+| PUT | `/api/galeria/{id}` | ADMIN | Change the title or the position |
+| DELETE | `/api/galeria/{id}` | ADMIN | Delete the photo and both of its objects in the store |
+
+> The thumbnail is optional in the endpoint and mandatory in practice: without it the listing returns the full-size image in `urlMiniatura`, which works but multiplies the grid's bandwidth. Both clients in this repo always generate it.
 
 ### Services
 | Method | Endpoint | Access | Description |
@@ -253,12 +267,13 @@ They boot the full application against a **real PostgreSQL** started in Docker (
 
 ## Data Model
 
-Schema is managed with **Flyway** (migrations `V1` to `V10` in `src/main/resources/db/migration/`):
+Schema is managed with **Flyway** (migrations `V1` to `V11` in `src/main/resources/db/migration/`):
 
 * **`usuarios`** — customers and administrators: name, unique email, phone, hashed password, role, active flag, `token_version` and `avatar_clave`.
 * **`servicios`** — salon catalog (haircuts, coloring...): description, duration in minutes, price, active flag and `imagen_clave`.
 * **`peluqueros`** — barbers/stylists, with soft delete. An appointment may optionally be assigned to one.
 * **`citas`** — links a `usuario` with a `servicio` (and optionally a `peluquero`) at a specific time. Status enum (`PENDIENTE`, `CONFIRMADA`, `ANULADA`) and a `recordatorio_enviado` flag for the 24h reminder.
+* **`galeria_fotos`** — work gallery photos: `imagen_clave`, `miniatura_clave` (optional), title, manual `orden` and upload date.
 * **`dias_bloqueados`** — dates the salon does not open (holidays, one-off closures), with an optional reason. Fixed closed weekdays are not stored here: they come from configuration.
 * **`pagos`** — payments linked 1:1 to an appointment. Card (Stripe), cash or transfer. Status: `PENDIENTE`, `PAGADO`, `REEMBOLSADO`, `CANCELADO`.
 * **`stripe_evento`** — processed Stripe event IDs, guaranteeing webhook idempotency.
@@ -320,7 +335,7 @@ The API is available at `http://localhost:8080` (Swagger UI at `/swagger-ui.html
 
 * **API:** Render (Docker, multi-stage `Dockerfile` in this repo). Every push to `main` triggers a redeploy.
 * **Database:** Supabase (managed PostgreSQL, connected through its IPv4 session pooler).
-* **Image storage:** Supabase Storage, with two buckets to create — **`servicios`** (public read) and **`avatares`** (private, read through signed URLs). Binaries never live next to the application: Render's disk is ephemeral and every push to `main` wipes it.
+* **Image storage:** Supabase Storage, with three buckets to create — **`servicios`** and **`galeria`** (public read) and **`avatares`** (private, read through signed URLs). Binaries never live next to the application: Render's disk is ephemeral and every push to `main` wipes it.
 * **Email:** transactional emails are sent through a provider's SMTP relay on port **2525** (Render's Free tier blocks outbound SMTP ports 25/465/587).
 * **Frontends:** Firebase Hosting (see below).
 * **CI:** GitHub Actions runs the full suite — unit + Testcontainers integration tests — on every push and pull request.

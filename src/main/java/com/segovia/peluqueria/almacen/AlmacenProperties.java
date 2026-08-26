@@ -40,6 +40,12 @@ public class AlmacenProperties {
     private String bucketAvatares = "avatares";
 
     /**
+     * Bucket de la galeria de trabajos. Publico como el de servicios: es material
+     * promocional, se ve sin cuenta.
+     */
+    private String bucketGaleria = "galeria";
+
+    /**
      * Validez de las URLs firmadas de contenido privado. Cuanto mas corta, menos
      * dura una URL filtrada; cuanto mas larga, mejor la cachea el navegador.
      */
