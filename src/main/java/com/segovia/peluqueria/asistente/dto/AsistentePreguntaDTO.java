@@ -33,9 +33,8 @@ public class AsistentePreguntaDTO {
      * usabilidad: el historial se reenvía completo en cada turno, así que sin límite una
      * conversación larga multiplica el gasto de tokens de cada mensaje siguiente.
      */
-    @Valid
     @Size(max = 10, message = "El historial no puede superar los 10 mensajes")
-    private List<MensajeDTO> historial = List.of();
+    private List<@Valid MensajeDTO> historial = List.of();
 
     @Data
     public static class MensajeDTO {
