@@ -404,6 +404,36 @@ class UsuarioServiceTest {
     }
 
     @Test
+    void cambiarRol_degradaUltimoAdminAPeluquero_lanzaExcepcion() {
+        Usuario usuario = crearUsuarioBase();
+        usuario.setRol(Rol.ADMIN);
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(usuario));
+        when(usuarioRepository.countByRolAndActivoTrue(Rol.ADMIN)).thenReturn(1L);
+
+        // Con PELUQUERO en medio, la guarda tiene que mirar "cualquier rol que no sea ADMIN":
+        // comparar solo contra USER dejaria pasar esta degradacion y el sistema se quedaria
+        // sin nadie capaz de volver a dar el rol.
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> usuarioService.cambiarRol(1, Rol.PELUQUERO));
+        assertTrue(ex.getMessage().contains("único administrador"));
+        verify(usuarioRepository, never()).save(any());
+    }
+
+    @Test
+    void cambiarRol_promueveUsuarioAPeluquero_exitoso() {
+        Usuario usuario = crearUsuarioBase();
+        usuario.setRol(Rol.USER);
+        when(usuarioRepository.findById(1)).thenReturn(Optional.of(usuario));
+        when(usuarioRepository.save(any(Usuario.class))).thenAnswer(i -> i.getArgument(0));
+
+        UsuarioResponseDTO resultado = usuarioService.cambiarRol(1, Rol.PELUQUERO);
+
+        assertEquals(Rol.PELUQUERO, resultado.getRol());
+        // Promover no puede quedarse sin admins, asi que no se cuenta.
+        verify(usuarioRepository, never()).countByRolAndActivoTrue(any());
+    }
+
+    @Test
     void cambiarRol_usuarioNoExiste_lanzaExcepcion() {
         when(usuarioRepository.findById(99)).thenReturn(Optional.empty());
 

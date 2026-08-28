@@ -7,6 +7,7 @@ import com.segovia.peluqueria.servicio.dto.ServicioResponseDTO;
 import com.segovia.peluqueria.usuario.dto.UsuarioResponseDTO;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data
@@ -22,4 +23,16 @@ public class CitaResponseDTO {
     // Id de ese pago, para pedir su recibo sin tener que consultar el pago aparte. Viaja
     // aqui porque el listado ya trae el pago de cada cita en una sola consulta.
     private Integer idPago;
+
+    // ---- Datos de cierre y gestion ----
+    // Se rellenan solo para quien gestiona la cita (ADMIN, o el peluquero que la tiene
+    // asignada) y van a null para el cliente, igual que urlAvatar en UsuarioResponseDTO.
+    // Las observaciones son notas internas de trabajo y el porcentaje de comision es lo
+    // que cobra el profesional: ninguna de las dos cosas se le ensena al cliente.
+    private LocalDateTime fechaCierre;
+    private String observaciones;
+    private Boolean clienteContactado;
+    private String cerradaPor;
+    private BigDecimal precioAplicado;
+    private BigDecimal comisionPorcentajeAplicado;
 }

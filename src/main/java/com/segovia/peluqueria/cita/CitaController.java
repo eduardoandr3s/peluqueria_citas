@@ -1,6 +1,7 @@
 package com.segovia.peluqueria.cita;
 
 import com.segovia.peluqueria.calendario.dto.DiaCerradoDTO;
+import com.segovia.peluqueria.cita.dto.CitaCierreDTO;
 import com.segovia.peluqueria.cita.dto.CitaRequestDTO;
 import com.segovia.peluqueria.cita.dto.CitaResponseDTO;
 import com.segovia.peluqueria.cita.dto.CitaUpdateDTO;
@@ -66,6 +67,17 @@ public class CitaController {
     @PutMapping("/{id}")
     public CitaResponseDTO actualizarCita(@PathVariable Integer id, @Valid @RequestBody CitaUpdateDTO request, Authentication authentication) {
         return citaService.actualizarCita(id, request, authentication.getName());
+    }
+
+    /**
+     * Cierra la cita: realizada, no asistio o anulada, con observaciones y si se contacto al
+     * cliente. Es PATCH y no PUT porque toca un aspecto concreto de la cita, no su contenido.
+     */
+    @PatchMapping("/{id}/cierre")
+    public CitaResponseDTO cerrarCita(@PathVariable Integer id,
+                                      @Valid @RequestBody CitaCierreDTO request,
+                                      Authentication authentication) {
+        return citaService.cerrarCita(id, request, authentication.getName());
     }
 
     @DeleteMapping("/{id}")

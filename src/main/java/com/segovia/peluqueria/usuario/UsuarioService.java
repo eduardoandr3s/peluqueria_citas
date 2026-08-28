@@ -234,8 +234,11 @@ public class UsuarioService {
     public UsuarioResponseDTO cambiarRol(Integer id, Rol nuevoRol) {
         Usuario usuario = obtenerEntidadPorId(id);
 
-        // Evita dejar el sistema sin administradores: no se puede degradar al último ADMIN activo.
-        if (usuario.getRol() == Rol.ADMIN && nuevoRol == Rol.USER
+        // Evita dejar el sistema sin administradores: no se puede degradar al último ADMIN
+        // activo. La condicion es "a cualquier rol que no sea ADMIN" y no "a USER": con
+        // PELUQUERO en medio, comparar contra USER dejaria pasar la degradacion a PELUQUERO
+        // y el sistema se quedaria sin nadie que pueda volver a dar el rol.
+        if (usuario.getRol() == Rol.ADMIN && nuevoRol != Rol.ADMIN
                 && usuarioRepository.countByRolAndActivoTrue(Rol.ADMIN) <= 1) {
             throw new IllegalArgumentException("No se puede quitar el rol ADMIN al único administrador activo.");
         }

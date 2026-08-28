@@ -13,6 +13,9 @@ public interface CitaRepository extends JpaRepository<Cita, Integer> {
 
     Page<Cita> findByUsuarioIdUsuario(Integer idUsuario, Pageable pageable);
 
+    /** Citas asignadas a un peluquero. Es la agenda que ve el rol PELUQUERO. */
+    Page<Cita> findByPeluqueroIdPeluquero(Integer idPeluquero, Pageable pageable);
+
     @Query(value = """
             SELECT COUNT(*) FROM citas c
             JOIN servicios s ON c.servicio_id = s.id_servicio

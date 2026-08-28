@@ -59,7 +59,9 @@ Backend for a complete appointment booking and management system for a hair salo
 * **PDF payment receipt:** `GET /api/pagos/{id}/recibo` renders a one-page receipt from a Thymeleaf template, **generated on the fly and never stored** — it can always be rebuilt from the database, so keeping it would only add quota and lifecycle to manage. Only for **collected or refunded** payments: issuing a receipt for money that never arrived would state something false, so any other status returns **409**. The document says plainly that it is a proof of payment and **not an invoice**, since it carries no tax data.
 * **Business statistics:** `GET /api/estadisticas` (ADMIN only) returns appointments by status, revenue broken down by payment method (refunds excluded, computed by payment date), top services and new customers. Defaults to the **last 30 days** when no date range is given.
 * **Email notifications:** event-driven emails (registration, booking, modification, cancellation, payment confirmation, password changes) decoupled from business logic via Spring application events (`@TransactionalEventListener(AFTER_COMMIT)`), plus a **24-hour appointment reminder** sent by a scheduler (runs hourly, injectable `Clock` for testability, `recordatorio_enviado` flag guarantees a single send).
-* **Ownership control:** a `USER` can only see, modify or delete their own appointments and data; an `ADMIN` can access everything. Unauthorized access returns `403 Forbidden`.
+* **Three roles, with `PELUQUERO` in the middle:** a `USER` is the customer, an `ADMIN` can do everything, and a `PELUQUERO` (barber) sees **their own schedule** — the appointments assigned to their profile, not the shop's — closes them and checks their own sales. The `peluqueros` profile and the `usuarios` account are linked by a unique FK that is **optional in both directions**: a profile without an account is a professional the admin books for, and an account with the role but no profile simply has no schedule. There is no implicit Spring Security role hierarchy: every `SecurityConfig` rule states explicitly who gets through, because a hierarchy in one file and the rules in another is how an endpoint gets opened without anyone noticing.
+* **Appointment closing and sales:** `PATCH /api/citas/{id}/cierre` leaves the appointment as `COMPLETADA`, `NO_ASISTIO` or `ANULADA` with notes and a `clienteContactado` flag, and stamps who closed it and when. Completing **freezes** the service price and the commission rate into the appointment, and that copy is what holds everything else up: without it, raising a rate in June would change March's already-settled sales and commissions. `GET /api/produccion/mia` adds up **only what is completed AND paid** — money counts once it is in, and cash comes in through the manual payment — with work done but unpaid reported separately so it never drops off every screen. The commission is a per-barber percentage with **per-service exceptions**, because a dye job does not pay the same as a haircut.
+* **Ownership control:** a `USER` can only see, modify or delete their own appointments and data; a `PELUQUERO` also reaches the appointments assigned to their profile but **not a colleague's**; an `ADMIN` can access everything. Unauthorized access returns `403 Forbidden`.
 * **DTO pattern:** every entity has separate DTOs for creation, partial update and response. Sensitive data is never exposed.
 * **Pagination and sorting:** appointment and user listings are paginated (`page`, `size`, `sort`) and return a Spring Data `Page`.
 * **Soft delete + reactivation:** users, services and barbers are never physically deleted, only deactivated. Deactivated users can be listed (`?incluirInactivos=true`) and reactivated (`PATCH /api/usuarios/{id}/activar`).
@@ -68,7 +70,7 @@ Backend for a complete appointment booking and management system for a hair salo
 * **OpenAPI / Swagger UI documentation:** auto-generated with springdoc-openapi, available at `/swagger-ui.html` and `/v3/api-docs`.
 * **Configuration profiles:** separate `dev` and `prod` environments. Schema is managed with **Flyway migrations** (`src/main/resources/db/migration/`). Under the `prod` profile the app **refuses to start** without storage credentials rather than falling back to local disk: on an ephemeral container that failure is silent — uploads succeed and vanish on the next deploy.
 * **Observability (Actuator + Prometheus + Grafana):** `/actuator/prometheus` publishes JVM, HTTP, connection-pool and **business** metrics: appointments by state and service, payments, sign-ups, reminders, password-reset attempts and the assistant's token usage. The business counters are fed by the **domain events that already existed for the emails**, so no service was modified to measure it — and they count in `AFTER_COMMIT`, because an appointment whose insert rolled back is not an appointment. Three decisions are the design: only `health` and `prometheus` are exposed and Spring Security `denyAll`s everything else, since `env`/`beans`/`configprops` would dump the whole configuration with the Stripe and Gemini keys in it; the metrics endpoint is guarded by a **token in a header** rather than a JWT, because a scraper that runs every 30 seconds cannot renew one that expires; and the **mail health indicator is off**, because Actuator enables it just for having the mail starter and an SMTP hiccup would put the global health in `DOWN` — Render reads that endpoint, so a mail problem would have it restart a backend whose appointments and payments work perfectly.
-* **Test suite (329 tests):** 297 unit tests covering the business logic without Spring context or database, plus 32 integration tests with **Testcontainers** (real PostgreSQL in Docker) covering authentication, ownership rules, statistics, payments and the full Stripe webhook flow with real signature verification.
+* **Test suite (381 tests):** 336 unit tests covering the business logic without Spring context or database, plus 45 integration tests with **Testcontainers** (real PostgreSQL in Docker) covering authentication, ownership rules, statistics, payments, sales and commissions, role-based appointment closing and the full Stripe webhook flow with real signature verification.
 
 ## Project Structure
 
@@ -83,7 +85,8 @@ com.segovia.peluqueria/
 ├── galeria/        # Work gallery: photos with manual ordering and a separate thumbnail
 ├── notificacion/   # Domain events, email notifications and the 24h reminder scheduler
 ├── pago/           # Payments: Stripe PaymentIntents, webhooks, manual payments, refunds
-├── peluquero/      # Barbers: CRUD and per-barber availability
+├── peluquero/      # Barbers: profile, linked account, commission and per-service exceptions
+├── produccion/     # Per-barber sales and commission: sold, collected and outstanding
 ├── security/       # SecurityConfig, JWT service and filter, CORS
 ├── servicio/       # Service catalog
 └── usuario/        # Users, roles, soft delete, search
@@ -93,16 +96,16 @@ Each business module follows the same layout: JPA entity, controller, service, r
 
 ## Tests
 
-**329 tests** run in CI on every push (GitHub Actions).
+**381 tests** run in CI on every push (GitHub Actions).
 
-### Unit tests (297)
+### Unit tests (336)
 
 They cover all business logic without Spring context or database (a few seconds):
 
 | Class | Tests | Coverage |
 |-------|-------|----------|
-| CitaServiceTest | 48 | Booking, business hours, closed days, conflicts, CRUD, ownership, availability, pagination, barber validation, auto-confirmation on payment |
-| UsuarioServiceTest | 38 | CRUD, duplicate email, hashing, soft delete, ownership, reactivation, pagination, search, avatar upload/removal |
+| CitaServiceTest | 64 | Booking, business hours, closed days, conflicts, CRUD, ownership, availability, pagination, barber validation, auto-confirmation on payment, and **closing**: freezing price and commission on completion, refusing to complete what has not started, a customer may only cancel, a barber cannot rewrite a finished closing nor touch someone else's schedule, PUT rejects `COMPLETADA`, and the customer never receives notes or commission |
+| UsuarioServiceTest | 40 | CRUD, duplicate email, hashing, soft delete, ownership, reactivation, pagination, search, avatar upload/removal |
 | PagoServiceTest | 32 | PaymentIntents, webhooks, manual payment, refunds, polling, concurrency, who may request a receipt and in which payment states |
 | CalendarioServiceTest | 17 | Closed weekdays, blocking/unblocking dates, past dates, duplicates, days with live appointments, closed-day ranges |
 | AsistenteHerramientasTest | 11 | The assistant's tools: delegation to the real services, that only what the model needs travels to it (no image URLs, no descriptions), the closed-day range cap, an invalid date turned into a message the model can correct, and that "today" comes from the `Clock` rather than a guess |
@@ -117,7 +120,8 @@ They cover all business logic without Spring context or database (a few seconds)
 | RefreshTokenServiceTest | 8 | Rotation, revocation, expiration |
 | JwtAuthenticationFilterTest | 7 | Filter with/without token, invalid/expired token, deactivated account, tokenVersion |
 | PasswordResetServiceTest | 7 | Request, reset, expiration, anti-enumeration |
-| PeluqueroServiceTest | 7 | Barber CRUD, soft delete |
+| PeluqueroServiceTest | 19 | CRUD and soft delete, account linking (rejects a `USER`, a deactivated account and one already linked to another profile), unlinking, and the applicable commission: the per-service exception beats the profile's rate |
+| ProduccionServiceTest | 9 | Mapping of the summary, the breakdowns and the outstanding amount, account with no linked profile, inverted and over-two-year ranges, and rounding to two decimals what Postgres returns |
 | SupabaseStorageAlmacenTest | 7 | Storage REST calls with `MockRestServiceServer`: upload, delete, URL signing, and that keys with a folder are not escaped |
 | MetricasNegocioListenerTest | 6 | Business counters: one metric per concept with `estado`/`servicio` as labels, a missing service name falling back instead of throwing, and that **no metric ever carries a customer's name or email** — a personal data leak and a new time series per person |
 | AlmacenConfigTest | 5 | Adapter selection per profile: refuses to start under `prod` without credentials, falls back to disk in `dev` |
@@ -132,7 +136,7 @@ They cover all business logic without Spring context or database (a few seconds)
 ./mvnw test -Dtest='!*IntegrationTest'
 ```
 
-### Integration tests (32, Testcontainers)
+### Integration tests (45, Testcontainers)
 
 They boot the full application against a **real PostgreSQL** started in Docker (`@ServiceConnection`), with Flyway migrations applied:
 
@@ -143,6 +147,8 @@ They boot the full application against a **real PostgreSQL** started in Docker (
 * **OwnershipIntegrationTest** (2) — a user cannot read (GET) or edit (PUT) someone else's appointment (403); `/api/usuarios/me` never exposes the password.
 * **AsistenteApagadoIntegrationTest** (3) — with the assistant switched off (the default) the app **still starts** and its route answers **404, not 500**, which is what lets the client tell "not deployed" from "failed". The third pins the counterpoint: an unknown route that is **not** public answers 403, because Spring Security cuts in before the dispatcher and does not confirm to an anonymous caller which routes exist.
 * **MetricasIntegrationTest** (6) — who can read what from Actuator: `prometheus` answers 403 with no token, with a wrong token, and 200 with the right one; `env`, `beans`, `configprops` and `loggers` stay closed **even with the valid token**; `health` is public, shows no internals and **survives a broken SMTP** (this one caught a real bug: the mail indicator was putting health in `DOWN`, which would have had Render restart the backend in a loop). The sixth publishes a domain event and finds `peluqueria_citas_total` in the actual scrape — the only place where the metric name in the code and the one the dashboard queries are checked together.
+* **ProduccionIntegrationTest** (6) — sales and commission against real Postgres, the only place the native SQL (`DATE_TRUNC`, `TO_CHAR` and four JOINs) is actually checked: it adds up only what is completed **and paid**, leaving out no-shows, cancellations, another barber's work and completed-but-unpaid work (which comes back as outstanding); the per-service and monthly breakdowns; **the frozen amount wins** — the rate is raised after settling and sales do not move; the staff comparison ordered by amount; and who does not get in: a barber sees neither another's sales nor the comparison, a customer not even their own, and an account with the role but no profile gets a 404.
+* **CierreCitaIntegrationTest** (7) — closing over HTTP and what the `PELUQUERO` role may touch. Deliberately over HTTP: the rules for who reaches which appointment are **not** in `SecurityConfig` (`/api/citas/**` is "any authenticated user") but in the service, because they depend on the linked profile. A barber closes their own appointment and the amount is frozen; cannot close or even read a colleague's (403); the customer cancels their own but cannot mark it done, and never receives the internal notes; `COMPLETADA` through the old PUT is a 400; a finished closing is only correctable by an ADMIN, and correcting it stops it counting; the barber's listing is their schedule and not the shop's; and `usuarios`, `estadisticas`, `pagos` and barber management still answer 403.
 * **AuthIntegrationTest** (1) — full register/login flow over HTTP.
 
 > Tests never book "tomorrow": a helper picks the **next Monday**, so a run on a Saturday cannot land on a closed day and fail for reasons unrelated to what is being tested.
@@ -205,13 +211,16 @@ They boot the full application against a **real PostgreSQL** started in Docker (
 ### Appointments
 | Method | Endpoint | Access | Description |
 |--------|----------|--------|-------------|
-| GET | `/api/citas` | USER/ADMIN | List appointments (paginated). A USER only sees their own, an ADMIN sees all |
+| GET | `/api/citas` | USER/PELUQUERO/ADMIN | List appointments (paginated). A USER only sees their own, a PELUQUERO their schedule, an ADMIN sees all |
 | GET | `/api/citas/disponibilidad` | USER/ADMIN | Free slots for `?fecha=YYYY-MM-DD&idServicio=N`. Optional `&peluqueroId=N` for a specific barber. Empty on closed days |
 | GET | `/api/citas/dias-cerrados` | USER/ADMIN | Closed days (closed weekdays + blocked dates) with their reason. Optional `?desde=&hasta=`; defaults to the next 3 months, 12-month range cap |
 | GET | `/api/citas/{id}` | Own/ADMIN | Get an appointment by ID |
 | POST | `/api/citas` | USER/ADMIN | Book an appointment (a USER only for themselves), optionally with a barber |
 | PUT | `/api/citas/{id}` | Own/ADMIN | Update an appointment |
+| PATCH | `/api/citas/{id}/cierre` | Own/PELUQUERO/ADMIN | Close the appointment: `estado` (`COMPLETADA`, `NO_ASISTIO` or `ANULADA`), `observaciones` and `clienteContactado`. Completing freezes the amount and the commission; a USER may only send `ANULADA`; a finished closing is only correctable by an ADMIN |
 | DELETE | `/api/citas/{id}` | Own/ADMIN | Delete an appointment |
+
+> `COMPLETADA` and `NO_ASISTIO` **do not go through the PUT** (it answers 400): closing freezes the amount and the commission, and the other path would leave completed appointments with no frozen price — exactly the hole sales figures cannot have. Cancelling through the PUT still works and leaves the same who-and-when trail.
 
 ### Barbers
 | Method | Endpoint | Access | Description |
@@ -219,8 +228,22 @@ They boot the full application against a **real PostgreSQL** started in Docker (
 | GET | `/api/peluqueros` | Authenticated | List active barbers |
 | GET | `/api/peluqueros/{id}` | Authenticated | Get a barber by ID |
 | POST | `/api/peluqueros` | ADMIN | Create a barber |
-| PUT | `/api/peluqueros/{id}` | ADMIN | Update a barber |
+| GET | `/api/peluqueros/gestion` | ADMIN | Full profiles (active **and inactive**) with commission and linked account |
+| PUT | `/api/peluqueros/{id}` | ADMIN | Update a barber: `nombre`, `activo`, `comisionPorcentaje`, `usuarioId` to link the account or `desvincularUsuario` |
+| GET | `/api/peluqueros/{id}/comisiones` | ADMIN | Per-service commission exceptions |
+| PUT | `/api/peluqueros/{id}/comisiones` | ADMIN | Replace the whole set of exceptions (whatever is not sent is deleted) |
 | DELETE | `/api/peluqueros/{id}` | ADMIN | Deactivate a barber (soft delete) |
+
+> The commission and the linked account are **not** part of `PeluqueroResponseDTO`, which is nested in every appointment and read by customers: what a professional earns only leaves through the ADMIN endpoints. Linking an account with the `USER` role answers 400 instead of silently changing its role: without the role, the owner of that profile would not see a single appointment.
+
+### Sales and commission
+| Method | Endpoint | Access | Description |
+|--------|----------|--------|-------------|
+| GET | `/api/produccion/mia` | PELUQUERO/ADMIN | Sales for the barber **of the authenticated account** (the id is not a parameter, it is resolved from the account). `?desde=&hasta=`; defaults to the current month, 24-month cap |
+| GET | `/api/produccion/peluquero/{id}` | ADMIN | Anyone's |
+| GET | `/api/produccion` | ADMIN | Whole-staff comparison, ordered by amount |
+
+> Returns services performed, amount sold and commission, plus the per-service and monthly breakdown, and separately `serviciosSinCobrar`/`importeSinCobrar`. It only adds up `COMPLETADA` appointments **whose payment is `PAGADO`**; cash comes in by registering the manual payment, which until the configurable-permissions phase is still ADMIN-only.
 
 ### Closed days
 | Method | Endpoint | Access | Description |

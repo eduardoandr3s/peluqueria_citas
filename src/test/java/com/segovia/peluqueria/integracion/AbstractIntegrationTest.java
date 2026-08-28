@@ -4,6 +4,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.web.client.DefaultResponseErrorHandler;
@@ -45,6 +46,10 @@ public abstract class AbstractIntegrationTest {
 
     {
         rest = new RestTemplate();
+        // Cliente basado en java.net.http (JDK) y no el de HttpURLConnection que trae
+        // RestTemplate por defecto: ese no admite PATCH ("Invalid HTTP method: PATCH"), y la
+        // API usa PATCH en el cambio de rol y en el cierre de cita.
+        rest.setRequestFactory(new JdkClientHttpRequestFactory());
         rest.setErrorHandler(new DefaultResponseErrorHandler() {
             @Override
             public boolean hasError(ClientHttpResponse response) {

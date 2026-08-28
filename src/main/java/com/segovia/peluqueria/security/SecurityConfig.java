@@ -101,10 +101,24 @@ public class SecurityConfig {
 
                         .requestMatchers("/api/citas/**").authenticated()
 
+                        // La ficha de gestion y las comisiones van ANTES del GET /** de abajo,
+                        // que es de cualquier autenticado: lo que gana un companero no es
+                        // asunto de un cliente ni del resto de la plantilla.
+                        .requestMatchers(HttpMethod.GET, "/api/peluqueros/gestion").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/peluqueros/*/comisiones").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/peluqueros/*/comisiones").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/peluqueros", "/api/peluqueros/**").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/peluqueros").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/peluqueros/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/peluqueros/**").hasRole("ADMIN")
+
+                        // Produccion y comision. La suya la ve el peluquero; la de otro y la
+                        // comparativa de toda la plantilla, solo el ADMIN. Quien es "el suyo" no
+                        // se puede resolver aqui (depende de la ficha vinculada a la cuenta), asi
+                        // que la comprobacion fina la hace ProduccionService.
+                        .requestMatchers(HttpMethod.GET, "/api/produccion/mia").hasAnyRole("PELUQUERO", "ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/produccion/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/produccion").hasRole("ADMIN")
 
                         // Los dias cerrados los consulta cualquier usuario autenticado (para el
                         // calendario de agendar); solo un ADMIN puede bloquear o desbloquear.

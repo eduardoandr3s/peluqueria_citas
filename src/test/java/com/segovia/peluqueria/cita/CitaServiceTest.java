@@ -4,6 +4,7 @@ import com.segovia.peluqueria.calendario.CalendarioService;
 import com.segovia.peluqueria.calendario.DiaBloqueado;
 import com.segovia.peluqueria.calendario.DiaBloqueadoRepository;
 import com.segovia.peluqueria.calendario.dto.DiaCerradoDTO;
+import com.segovia.peluqueria.cita.dto.CitaCierreDTO;
 import com.segovia.peluqueria.cita.dto.CitaRequestDTO;
 import com.segovia.peluqueria.cita.dto.CitaResponseDTO;
 import com.segovia.peluqueria.cita.dto.CitaUpdateDTO;
@@ -17,6 +18,7 @@ import com.segovia.peluqueria.pago.Pago;
 import com.segovia.peluqueria.pago.PagoRepository;
 import com.segovia.peluqueria.peluquero.Peluquero;
 import com.segovia.peluqueria.peluquero.PeluqueroRepository;
+import com.segovia.peluqueria.peluquero.PeluqueroService;
 import com.segovia.peluqueria.servicio.Servicio;
 import com.segovia.peluqueria.servicio.ServicioRepository;
 import com.segovia.peluqueria.usuario.Rol;
@@ -54,6 +56,7 @@ class CitaServiceTest {
     private UsuarioRepository usuarioRepository;
     private ServicioRepository servicioRepository;
     private PeluqueroRepository peluqueroRepository;
+    private PeluqueroService peluqueroService;
     private PagoRepository pagoRepository;
     private DiaBloqueadoRepository diaBloqueadoRepository;
     private ApplicationEventPublisher eventPublisher;
@@ -67,7 +70,11 @@ class CitaServiceTest {
         usuarioRepository = mock(UsuarioRepository.class);
         servicioRepository = mock(ServicioRepository.class);
         peluqueroRepository = mock(PeluqueroRepository.class);
+        peluqueroService = mock(PeluqueroService.class);
         pagoRepository = mock(PagoRepository.class);
+        // Por defecto ninguna cuenta tiene ficha de peluquero: los tests que la necesitan
+        // la stubbean. Sin esto, verificarAcceso llamaria a un mock que devuelve null.
+        when(peluqueroService.fichaDeUsuario(anyInt())).thenReturn(Optional.empty());
         diaBloqueadoRepository = mock(DiaBloqueadoRepository.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
         // Por defecto no hay pagos: las citas se mapean con estadoPago null.
@@ -84,7 +91,7 @@ class CitaServiceTest {
         // CalendarioService real (no mock) sobre el repo mockeado: la regla del dia de la
         // semana se calcula de verdad y solo hay que stubbear los bloqueos puntuales.
         CalendarioService calendario = new CalendarioService(diaBloqueadoRepository, citaRepository, horario, clock);
-        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository, peluqueroRepository, pagoRepository, horario, calendario, eventPublisher, clock);
+        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository, peluqueroRepository, peluqueroService, pagoRepository, horario, calendario, eventPublisher, clock);
 
         // Por defecto, el usuario autenticado es un ADMIN (acceso total).
         Usuario admin = new Usuario();
@@ -234,7 +241,7 @@ class CitaServiceTest {
         HorarioProperties horario = new HorarioProperties();
         CalendarioService calendario = new CalendarioService(diaBloqueadoRepository, citaRepository, horario, relojMadrid);
         citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository,
-                peluqueroRepository, pagoRepository, horario, calendario, eventPublisher, relojMadrid);
+                peluqueroRepository, peluqueroService, pagoRepository, horario, calendario, eventPublisher, relojMadrid);
 
         CitaRequestDTO request = crearRequestValido();
         request.setFechaHora(LocalDateTime.of(2026, 7, 20, 14, 0));
@@ -931,5 +938,289 @@ class CitaServiceTest {
 
         assertNotNull(resultado.getPeluquero());
         assertEquals(1, resultado.getPeluquero().getIdPeluquero());
+    }
+
+    // ----------------------------------------------------------------------------------
+    // Cierre de cita y agenda del rol PELUQUERO
+    // ----------------------------------------------------------------------------------
+
+    private static final String EMAIL_PELUQUERO = "lalo@test.com";
+
+    /** Cuenta con rol PELUQUERO vinculada a la ficha que se le pase. */
+    private Usuario autenticarPeluquero(Peluquero ficha) {
+        Usuario usuario = new Usuario();
+        usuario.setIdUsuario(7);
+        usuario.setNombre("Lalo");
+        usuario.setEmail(EMAIL_PELUQUERO);
+        usuario.setRol(Rol.PELUQUERO);
+        usuario.setActivo(true);
+        when(usuarioRepository.findByEmail(EMAIL_PELUQUERO)).thenReturn(Optional.of(usuario));
+        when(peluqueroService.fichaDeUsuario(7)).thenReturn(Optional.ofNullable(ficha));
+        return usuario;
+    }
+
+    private Cita citaPasadaConPeluquero(Peluquero peluquero) {
+        Cita cita = new Cita();
+        cita.setIdCita(1);
+        cita.setEstado(EstadoCita.CONFIRMADA);
+        cita.setFechaHora(LocalDateTime.now().minusDays(1).withHour(10).withMinute(0));
+        cita.setServicio(crearServicioActivo());
+        cita.setUsuario(crearUsuarioActivo());
+        cita.setPeluquero(peluquero);
+        when(citaRepository.findById(1)).thenReturn(Optional.of(cita));
+        when(citaRepository.save(any(Cita.class))).thenAnswer(i -> i.getArgument(0));
+        return cita;
+    }
+
+    private CitaCierreDTO cierre(EstadoCita estado, String observaciones, Boolean contactado) {
+        CitaCierreDTO dto = new CitaCierreDTO();
+        dto.setEstado(estado);
+        dto.setObservaciones(observaciones);
+        dto.setClienteContactado(contactado);
+        return dto;
+    }
+
+    @Test
+    void cerrarCita_completada_congelaPrecioYComision() {
+        Peluquero peluquero = crearPeluqueroActivo();
+        Cita cita = citaPasadaConPeluquero(peluquero);
+        when(peluqueroService.porcentajeAplicable(1, 1)).thenReturn(new BigDecimal("20.00"));
+
+        CitaResponseDTO resultado = citaService.cerrarCita(1, cierre(EstadoCita.COMPLETADA, null, null), EMAIL_ADMIN);
+
+        assertEquals(EstadoCita.COMPLETADA, resultado.getEstado());
+        // El servicio vale 15.00 y la comision aplicable es del 20%: los dos quedan copiados
+        // en la cita, que es lo que hace que la produccion no cambie si la tarifa sube.
+        assertEquals(new BigDecimal("15.00"), cita.getPrecioAplicado());
+        assertEquals(new BigDecimal("20.00"), cita.getComisionPorcentajeAplicado());
+        assertNotNull(cita.getFechaCierre());
+        assertEquals(99, cita.getCerradaPor().getIdUsuario());
+    }
+
+    @Test
+    void cerrarCita_completada_sinPeluquero_comisionCero() {
+        Cita cita = citaPasadaConPeluquero(null);
+
+        citaService.cerrarCita(1, cierre(EstadoCita.COMPLETADA, null, null), EMAIL_ADMIN);
+
+        // Hay venta (la FK de peluquero es nullable desde la V7) pero no a quien comisionar.
+        assertEquals(new BigDecimal("15.00"), cita.getPrecioAplicado());
+        assertEquals(BigDecimal.ZERO, cita.getComisionPorcentajeAplicado());
+        verify(peluqueroService, never()).porcentajeAplicable(any(), any());
+    }
+
+    @Test
+    void cerrarCita_completada_citaQueNoHaEmpezado_lanzaExcepcion() {
+        Cita cita = new Cita();
+        cita.setIdCita(1);
+        cita.setEstado(EstadoCita.CONFIRMADA);
+        cita.setFechaHora(proximoLunesALas(10, 0));
+        cita.setServicio(crearServicioActivo());
+        cita.setUsuario(crearUsuarioActivo());
+        when(citaRepository.findById(1)).thenReturn(Optional.of(cita));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> citaService.cerrarCita(1, cierre(EstadoCita.COMPLETADA, null, null), EMAIL_ADMIN));
+
+        assertTrue(ex.getMessage().contains("todavia no ha empezado"));
+        verify(citaRepository, never()).save(any(Cita.class));
+    }
+
+    @Test
+    void cerrarCita_anulada_guardaObservacionesYAvisaAlCliente() {
+        Cita cita = citaPasadaConPeluquero(crearPeluqueroActivo());
+
+        CitaResponseDTO resultado = citaService.cerrarCita(
+                1, cierre(EstadoCita.ANULADA, "  Llamo para cambiar de dia  ", true), EMAIL_ADMIN);
+
+        assertEquals(EstadoCita.ANULADA, resultado.getEstado());
+        assertEquals("Llamo para cambiar de dia", cita.getObservaciones());
+        assertTrue(cita.getClienteContactado());
+        // El email se manda aunque se haya contactado al cliente: si el aviso humano no
+        // ocurrio, es lo unico que le queda.
+        verify(eventPublisher).publishEvent(any(CitaAnuladaEvent.class));
+    }
+
+    @Test
+    void cerrarCita_noAsistio_noCongelaImporte() {
+        Cita cita = citaPasadaConPeluquero(crearPeluqueroActivo());
+
+        citaService.cerrarCita(1, cierre(EstadoCita.NO_ASISTIO, "No aparecio", false), EMAIL_ADMIN);
+
+        assertEquals(EstadoCita.NO_ASISTIO, cita.getEstado());
+        assertNull(cita.getPrecioAplicado());
+        assertNull(cita.getComisionPorcentajeAplicado());
+        verify(eventPublisher, never()).publishEvent(any(CitaAnuladaEvent.class));
+    }
+
+    @Test
+    void cerrarCita_cliente_soloPuedeAnular() {
+        Usuario carlos = crearUsuarioActivo();
+        when(usuarioRepository.findByEmail("carlos@test.com")).thenReturn(Optional.of(carlos));
+        citaPasadaConPeluquero(crearPeluqueroActivo());
+
+        assertThrows(AccessDeniedException.class,
+                () -> citaService.cerrarCita(1, cierre(EstadoCita.COMPLETADA, null, null), "carlos@test.com"));
+
+        // Anular la suya si puede.
+        CitaResponseDTO anulada = citaService.cerrarCita(
+                1, cierre(EstadoCita.ANULADA, "No me viene bien", null), "carlos@test.com");
+        assertEquals(EstadoCita.ANULADA, anulada.getEstado());
+    }
+
+    @Test
+    void cerrarCita_yaCerrada_elPeluqueroNoLaPuedeReescribir() {
+        Peluquero ficha = crearPeluqueroActivo();
+        autenticarPeluquero(ficha);
+        Cita cita = citaPasadaConPeluquero(ficha);
+        cita.setEstado(EstadoCita.COMPLETADA);
+
+        AccessDeniedException ex = assertThrows(AccessDeniedException.class,
+                () -> citaService.cerrarCita(1, cierre(EstadoCita.NO_ASISTIO, null, null), EMAIL_PELUQUERO));
+
+        assertTrue(ex.getMessage().contains("administrador"));
+    }
+
+    @Test
+    void cerrarCita_admin_corrigeCompletadaYLimpiaImportes() {
+        Cita cita = citaPasadaConPeluquero(crearPeluqueroActivo());
+        cita.setEstado(EstadoCita.COMPLETADA);
+        cita.setPrecioAplicado(new BigDecimal("15.00"));
+        cita.setComisionPorcentajeAplicado(new BigDecimal("20.00"));
+
+        citaService.cerrarCita(1, cierre(EstadoCita.NO_ASISTIO, "Me equivoque de cita", null), EMAIL_ADMIN);
+
+        // Un cierre corregido tiene que dejar de sumar en la produccion.
+        assertNull(cita.getPrecioAplicado());
+        assertNull(cita.getComisionPorcentajeAplicado());
+    }
+
+    @Test
+    void cerrarCita_estadoQueNoEsDeCierre_lanzaExcepcion() {
+        citaPasadaConPeluquero(crearPeluqueroActivo());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> citaService.cerrarCita(1, cierre(EstadoCita.CONFIRMADA, null, null), EMAIL_ADMIN));
+    }
+
+    @Test
+    void cerrarCita_peluqueroDeOtraAgenda_accesoDenegado() {
+        Peluquero suya = crearPeluqueroActivo();
+        autenticarPeluquero(suya);
+
+        Peluquero deOtro = crearPeluqueroActivo();
+        deOtro.setIdPeluquero(2);
+        deOtro.setNombre("Pepe");
+        citaPasadaConPeluquero(deOtro);
+
+        assertThrows(AccessDeniedException.class,
+                () -> citaService.cerrarCita(1, cierre(EstadoCita.COMPLETADA, null, null), EMAIL_PELUQUERO));
+    }
+
+    @Test
+    void cerrarCita_peluqueroDeSuAgenda_completaYVeSuComision() {
+        Peluquero ficha = crearPeluqueroActivo();
+        autenticarPeluquero(ficha);
+        citaPasadaConPeluquero(ficha);
+        when(peluqueroService.porcentajeAplicable(1, 1)).thenReturn(new BigDecimal("15.00"));
+
+        CitaResponseDTO resultado = citaService.cerrarCita(
+                1, cierre(EstadoCita.COMPLETADA, "Corte y barba", null), EMAIL_PELUQUERO);
+
+        assertEquals(EstadoCita.COMPLETADA, resultado.getEstado());
+        assertEquals(new BigDecimal("15.00"), resultado.getComisionPorcentajeAplicado());
+        assertEquals("Corte y barba", resultado.getObservaciones());
+    }
+
+    @Test
+    void obtenerCitaPorId_cliente_noVeLosDatosDeGestion() {
+        Usuario carlos = crearUsuarioActivo();
+        when(usuarioRepository.findByEmail("carlos@test.com")).thenReturn(Optional.of(carlos));
+        Cita cita = citaPasadaConPeluquero(crearPeluqueroActivo());
+        cita.setObservaciones("El cliente discutio el precio");
+        cita.setComisionPorcentajeAplicado(new BigDecimal("20.00"));
+        cita.setPrecioAplicado(new BigDecimal("15.00"));
+
+        CitaResponseDTO resultado = citaService.obtenerCitaPorId(1, "carlos@test.com");
+
+        // Notas internas y comision no viajan al cliente aunque la cita sea suya.
+        assertNull(resultado.getObservaciones());
+        assertNull(resultado.getComisionPorcentajeAplicado());
+        assertNull(resultado.getPrecioAplicado());
+    }
+
+    @Test
+    void actualizarCita_completadaPorPut_lanzaExcepcion() {
+        Cita cita = new Cita();
+        cita.setIdCita(1);
+        cita.setEstado(EstadoCita.CONFIRMADA);
+        cita.setFechaHora(proximoLunesALas(10, 0));
+        cita.setServicio(crearServicioActivo());
+        cita.setUsuario(crearUsuarioActivo());
+        when(citaRepository.findById(1)).thenReturn(Optional.of(cita));
+
+        CitaUpdateDTO request = new CitaUpdateDTO();
+        request.setEstado(EstadoCita.COMPLETADA);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> citaService.actualizarCita(1, request, EMAIL_ADMIN));
+
+        // Si el PUT dejara completar, quedarian citas completadas sin importe congelado.
+        assertTrue(ex.getMessage().contains("cierre de cita"));
+        verify(citaRepository, never()).save(any(Cita.class));
+    }
+
+    @Test
+    void actualizarCita_anulaPorPut_sellaQuienCierra() {
+        Cita cita = new Cita();
+        cita.setIdCita(1);
+        cita.setEstado(EstadoCita.PENDIENTE);
+        cita.setFechaHora(proximoLunesALas(10, 0));
+        cita.setServicio(crearServicioActivo());
+        cita.setUsuario(crearUsuarioActivo());
+        when(citaRepository.findById(1)).thenReturn(Optional.of(cita));
+        when(citaRepository.save(any(Cita.class))).thenAnswer(i -> i.getArgument(0));
+
+        CitaUpdateDTO request = new CitaUpdateDTO();
+        request.setEstado(EstadoCita.ANULADA);
+
+        citaService.actualizarCita(1, request, EMAIL_ADMIN);
+
+        assertNotNull(cita.getFechaCierre());
+        assertEquals(99, cita.getCerradaPor().getIdUsuario());
+    }
+
+    @Test
+    void listarCitas_peluquero_devuelveSuAgendaYNoLasDeLaCasa() {
+        Peluquero ficha = crearPeluqueroActivo();
+        autenticarPeluquero(ficha);
+
+        Cita suya = new Cita();
+        suya.setIdCita(5);
+        suya.setEstado(EstadoCita.CONFIRMADA);
+        suya.setUsuario(crearUsuarioActivo());
+        suya.setServicio(crearServicioActivo());
+        suya.setPeluquero(ficha);
+        when(citaRepository.findByPeluqueroIdPeluquero(eq(1), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(suya), pageable, 1));
+
+        Page<CitaResponseDTO> resultado = citaService.listarCitas(EMAIL_PELUQUERO, pageable);
+
+        assertEquals(1, resultado.getTotalElements());
+        assertEquals(5, resultado.getContent().get(0).getIdCita());
+        verify(citaRepository, never()).findAll(any(Pageable.class));
+        verify(citaRepository, never()).findByUsuarioIdUsuario(anyInt(), any(Pageable.class));
+    }
+
+    @Test
+    void listarCitas_peluqueroSinFichaVinculada_paginaVacia() {
+        autenticarPeluquero(null);
+
+        Page<CitaResponseDTO> resultado = citaService.listarCitas(EMAIL_PELUQUERO, pageable);
+
+        // Una cuenta con el rol pero sin ficha no tiene agenda; devolver vacio es mas
+        // honesto que reventar con un 500.
+        assertTrue(resultado.isEmpty());
+        verify(citaRepository, never()).findAll(any(Pageable.class));
     }
 }

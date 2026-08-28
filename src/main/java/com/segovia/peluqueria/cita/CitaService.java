@@ -2,6 +2,7 @@ package com.segovia.peluqueria.cita;
 
 import com.segovia.peluqueria.calendario.CalendarioService;
 import com.segovia.peluqueria.calendario.dto.DiaCerradoDTO;
+import com.segovia.peluqueria.cita.dto.CitaCierreDTO;
 import com.segovia.peluqueria.cita.dto.CitaRequestDTO;
 import com.segovia.peluqueria.cita.dto.CitaResponseDTO;
 import com.segovia.peluqueria.cita.dto.CitaUpdateDTO;
@@ -15,6 +16,7 @@ import com.segovia.peluqueria.pago.Pago;
 import com.segovia.peluqueria.pago.PagoRepository;
 import com.segovia.peluqueria.peluquero.Peluquero;
 import com.segovia.peluqueria.peluquero.PeluqueroRepository;
+import com.segovia.peluqueria.peluquero.PeluqueroService;
 import com.segovia.peluqueria.peluquero.dto.PeluqueroResponseDTO;
 import com.segovia.peluqueria.servicio.Servicio;
 import com.segovia.peluqueria.servicio.ServicioRepository;
@@ -25,11 +27,13 @@ import com.segovia.peluqueria.usuario.UsuarioRepository;
 import com.segovia.peluqueria.usuario.dto.UsuarioResponseDTO;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -37,6 +41,7 @@ import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -52,6 +57,7 @@ public class CitaService {
     private final UsuarioRepository usuarioRepository;
     private final ServicioRepository servicioRepository;
     private final PeluqueroRepository peluqueroRepository;
+    private final PeluqueroService peluqueroService;
     private final PagoRepository pagoRepository;
     private final HorarioProperties horario;
     private final CalendarioService calendario;
@@ -62,6 +68,7 @@ public class CitaService {
                        UsuarioRepository usuarioRepository,
                        ServicioRepository servicioRepository,
                        PeluqueroRepository peluqueroRepository,
+                       PeluqueroService peluqueroService,
                        PagoRepository pagoRepository,
                        HorarioProperties horario,
                        CalendarioService calendario,
@@ -71,6 +78,7 @@ public class CitaService {
         this.usuarioRepository = usuarioRepository;
         this.servicioRepository = servicioRepository;
         this.peluqueroRepository = peluqueroRepository;
+        this.peluqueroService = peluqueroService;
         this.pagoRepository = pagoRepository;
         this.horario = horario;
         this.calendario = calendario;
@@ -81,14 +89,27 @@ public class CitaService {
     @Transactional(readOnly = true)
     public Page<CitaResponseDTO> listarCitas(String emailAutenticado, Pageable pageable) {
         Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
-        // Un ADMIN ve todas las citas; un USER solo las suyas.
-        Page<Cita> citas = esAdmin(actual)
-                ? citaRepository.findAll(pageable)
-                : citaRepository.findByUsuarioIdUsuario(actual.getIdUsuario(), pageable);
+        // Un ADMIN ve todas las citas, un PELUQUERO su agenda (las que tiene asignadas) y
+        // un USER solo las suyas. La agenda del peluquero es lo asignado a su FICHA, no lo
+        // que el haya reservado como cliente: son dos cosas distintas y la que necesita
+        // para trabajar es la primera.
+        Page<Cita> citas;
+        if (esAdmin(actual)) {
+            citas = citaRepository.findAll(pageable);
+        } else if (actual.getRol() == Rol.PELUQUERO) {
+            citas = fichaDe(actual)
+                    .map(ficha -> citaRepository.findByPeluqueroIdPeluquero(ficha.getIdPeluquero(), pageable))
+                    // Cuenta con rol PELUQUERO y sin ficha vinculada: no tiene agenda, y una
+                    // pagina vacia es mas honesto que un error de servidor.
+                    .orElseGet(() -> new PageImpl<>(List.of(), pageable, 0));
+        } else {
+            citas = citaRepository.findByUsuarioIdUsuario(actual.getIdUsuario(), pageable);
+        }
 
         // Pago de todas las citas de la pagina en una sola consulta (evita N+1).
         Map<Integer, Pago> pagos = pagosDe(citas.map(Cita::getIdCita).getContent());
-        return citas.map(cita -> mapearAResponseDTO(cita, pagos.get(cita.getIdCita())));
+        boolean gestion = puedeGestionar(actual);
+        return citas.map(cita -> mapearAResponseDTO(cita, pagos.get(cita.getIdCita()), gestion));
     }
 
     /** Mapa citaId -> pago para las citas dadas (solo las que tienen pago aparecen). */
@@ -229,7 +250,7 @@ public class CitaService {
                 usuarioCompleto.getNombre(), usuarioCompleto.getEmail(),
                 servicioCompleto.getNombre(), guardada.getFechaHora()));
         // Cita recien creada: aun no puede tener pago asociado.
-        return mapearAResponseDTO(guardada, null);
+        return mapearAResponseDTO(guardada, null, puedeGestionar(actual));
     }
 
     @Transactional(readOnly = true)
@@ -237,7 +258,7 @@ public class CitaService {
         Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
         Cita cita = obtenerEntidadPorId(id);
         verificarAcceso(cita, actual);
-        return mapearAResponseDTO(cita, pagoDe(cita.getIdCita()));
+        return mapearAResponseDTO(cita, pagoDe(cita.getIdCita()), puedeGestionar(actual));
     }
 
     @Transactional
@@ -251,6 +272,14 @@ public class CitaService {
         }
 
         if (request.getEstado() != null) {
+            // COMPLETADA y NO_ASISTIO no entran por aqui: son cierres, y cerrar congela el
+            // importe y la comision. Si se permitiera por este camino quedarian citas
+            // completadas sin precio congelado, que es exactamente el agujero que la
+            // produccion no puede tener.
+            if (esCierreDeTrabajo(request.getEstado())) {
+                throw new IllegalArgumentException(
+                        "Para marcar una cita como " + request.getEstado() + " usa el cierre de cita (PATCH /api/citas/{id}/cierre).");
+            }
             citaExistente.setEstado(request.getEstado());
         }
 
@@ -283,6 +312,13 @@ public class CitaService {
         boolean anulada = request.getEstado() == EstadoCita.ANULADA;
         boolean reprogramada = request.getFechaHora() != null || request.getServicioId() != null;
 
+        if (anulada) {
+            // Anular por PUT sigue valiendo (es lo que hace el boton de siempre del panel),
+            // pero deja el mismo rastro que el cierre: quien y cuando.
+            citaExistente.setFechaCierre(LocalDateTime.now(clock));
+            citaExistente.setCerradaPor(actual);
+        }
+
         Cita guardada = citaRepository.save(citaExistente);
 
         Usuario cliente = guardada.getUsuario();
@@ -296,7 +332,96 @@ public class CitaService {
                     guardada.getServicio().getNombre(), guardada.getFechaHora()));
         }
 
-        return mapearAResponseDTO(guardada, pagoDe(guardada.getIdCita()));
+        return mapearAResponseDTO(guardada, pagoDe(guardada.getIdCita()), puedeGestionar(actual));
+    }
+
+    /**
+     * Cierra una cita: realizada, el cliente no vino, o anulada.
+     *
+     * <p>Al completar se congelan el importe y el porcentaje de comision (ver {@link Cita}).
+     * Al anular se avisa al cliente por email aunque se marque que ya se le contacto: si ya
+     * lo sabe, el correo no molesta, y si el aviso humano no llego a producirse, es lo unico
+     * que le queda.
+     */
+    @Transactional
+    public CitaResponseDTO cerrarCita(Integer id, CitaCierreDTO request, String emailAutenticado) {
+        Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
+        Cita cita = obtenerEntidadPorId(id);
+        verificarAcceso(cita, actual);
+
+        EstadoCita nuevo = request.getEstado();
+        if (nuevo != EstadoCita.ANULADA && !esCierreDeTrabajo(nuevo)) {
+            throw new IllegalArgumentException(
+                    "El cierre solo admite COMPLETADA, NO_ASISTIO o ANULADA; llego " + nuevo + ".");
+        }
+        // Un cliente puede renunciar a su cita, pero no declarar que se realizo: eso lo
+        // dice quien trabaja, porque es lo que genera produccion y comision.
+        if (actual.getRol() == Rol.USER && nuevo != EstadoCita.ANULADA) {
+            throw new AccessDeniedException("Un cliente solo puede anular su cita.");
+        }
+        // Reabrir o corregir un cierre es de ADMIN. Si no, el mismo que cobra la comision
+        // podria reescribir a posteriori lo que hizo.
+        if (estaCerrada(cita.getEstado()) && !esAdmin(actual)) {
+            throw new AccessDeniedException(
+                    "La cita ya se cerro como " + cita.getEstado() + ". Solo un administrador puede corregirlo.");
+        }
+        if (nuevo == EstadoCita.COMPLETADA && cita.getFechaHora().isAfter(LocalDateTime.now(clock))) {
+            throw new IllegalArgumentException("No se puede dar por realizada una cita que todavia no ha empezado.");
+        }
+
+        cita.setEstado(nuevo);
+        cita.setObservaciones(normalizar(request.getObservaciones()));
+        cita.setClienteContactado(Boolean.TRUE.equals(request.getClienteContactado()));
+        cita.setFechaCierre(LocalDateTime.now(clock));
+        cita.setCerradaPor(actual);
+
+        if (nuevo == EstadoCita.COMPLETADA) {
+            congelarImportes(cita);
+        } else {
+            // Un cierre corregido de COMPLETADA a otra cosa tiene que dejar de sumar.
+            cita.setPrecioAplicado(null);
+            cita.setComisionPorcentajeAplicado(null);
+        }
+
+        Cita guardada = citaRepository.save(cita);
+        if (nuevo == EstadoCita.ANULADA) {
+            Usuario cliente = guardada.getUsuario();
+            eventPublisher.publishEvent(new CitaAnuladaEvent(
+                    cliente.getNombre(), cliente.getEmail(),
+                    guardada.getServicio().getNombre(), guardada.getFechaHora()));
+        }
+        return mapearAResponseDTO(guardada, pagoDe(guardada.getIdCita()), puedeGestionar(actual));
+    }
+
+    /**
+     * Copia a la cita el precio del servicio y la comision que le toca al peluquero. Es una
+     * copia y no una lectura en vivo: la produccion de marzo no puede cambiar porque en
+     * junio se suba la tarifa o se renegocie el porcentaje.
+     */
+    private void congelarImportes(Cita cita) {
+        cita.setPrecioAplicado(cita.getServicio().getPrecio());
+        Peluquero peluquero = cita.getPeluquero();
+        cita.setComisionPorcentajeAplicado(peluquero == null
+                // Cita sin peluquero asignado (las hay, la FK es nullable desde la V7): hay
+                // venta, pero no hay a quien comisionar.
+                ? BigDecimal.ZERO
+                : peluqueroService.porcentajeAplicable(peluquero.getIdPeluquero(), cita.getServicio().getIdServicio()));
+    }
+
+    private String normalizar(String texto) {
+        if (texto == null || texto.isBlank()) {
+            return null;
+        }
+        return texto.trim();
+    }
+
+    /** COMPLETADA y NO_ASISTIO: cierres que hablan del trabajo, no de la reserva. */
+    private boolean esCierreDeTrabajo(EstadoCita estado) {
+        return estado == EstadoCita.COMPLETADA || estado == EstadoCita.NO_ASISTIO;
+    }
+
+    private boolean estaCerrada(EstadoCita estado) {
+        return estado == EstadoCita.ANULADA || esCierreDeTrabajo(estado);
     }
 
     @Transactional
@@ -329,11 +454,40 @@ public class CitaService {
         return usuario.getRol() == Rol.ADMIN;
     }
 
-    // Solo el dueño de la cita o un ADMIN pueden verla, modificarla o eliminarla.
+    /** Quien ve los datos internos de la cita: observaciones, comision y rastro de cierre. */
+    private boolean puedeGestionar(Usuario usuario) {
+        return usuario.getRol() != Rol.USER;
+    }
+
+    private Optional<Peluquero> fichaDe(Usuario usuario) {
+        return peluqueroService.fichaDeUsuario(usuario.getIdUsuario());
+    }
+
+    /**
+     * Pueden ver y tocar una cita: un ADMIN, el cliente dueño, y el peluquero que la tiene
+     * asignada. Un peluquero NO llega a las citas de un companero: el rol da acceso a su
+     * agenda, no a la de la casa.
+     */
     private void verificarAcceso(Cita cita, Usuario actual) {
-        if (!esAdmin(actual) && !cita.getUsuario().getIdUsuario().equals(actual.getIdUsuario())) {
-            throw new AccessDeniedException("No tienes permiso para acceder a este recurso.");
+        if (esAdmin(actual)) {
+            return;
         }
+        if (cita.getUsuario().getIdUsuario().equals(actual.getIdUsuario())) {
+            return;
+        }
+        if (esSuAgenda(cita, actual)) {
+            return;
+        }
+        throw new AccessDeniedException("No tienes permiso para acceder a este recurso.");
+    }
+
+    private boolean esSuAgenda(Cita cita, Usuario actual) {
+        if (actual.getRol() != Rol.PELUQUERO || cita.getPeluquero() == null) {
+            return false;
+        }
+        return fichaDe(actual)
+                .map(ficha -> ficha.getIdPeluquero().equals(cita.getPeluquero().getIdPeluquero()))
+                .orElse(false);
     }
 
     /**
@@ -341,7 +495,7 @@ public class CitaService {
      *             su estado para poder exponer tambien su id: es lo que necesitan los
      *             clientes para pedir el recibo, y asi no cuesta una peticion por cita.
      */
-    private CitaResponseDTO mapearAResponseDTO(Cita cita, Pago pago) {
+    private CitaResponseDTO mapearAResponseDTO(Cita cita, Pago pago, boolean incluirGestion) {
         CitaResponseDTO dto = new CitaResponseDTO();
         dto.setIdCita(cita.getIdCita());
         dto.setFechaHora(cita.getFechaHora());
@@ -351,6 +505,14 @@ public class CitaService {
         dto.setPeluquero(PeluqueroResponseDTO.desde(cita.getPeluquero()));
         dto.setEstadoPago(pago != null ? pago.getEstadoPago() : null);
         dto.setIdPago(pago != null ? pago.getIdPago() : null);
+        if (incluirGestion) {
+            dto.setFechaCierre(cita.getFechaCierre());
+            dto.setObservaciones(cita.getObservaciones());
+            dto.setClienteContactado(cita.getClienteContactado());
+            dto.setCerradaPor(cita.getCerradaPor() != null ? cita.getCerradaPor().getNombre() : null);
+            dto.setPrecioAplicado(cita.getPrecioAplicado());
+            dto.setComisionPorcentajeAplicado(cita.getComisionPorcentajeAplicado());
+        }
         return dto;
     }
 
