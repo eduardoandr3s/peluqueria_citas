@@ -70,7 +70,7 @@ Backend for a complete appointment booking and management system for a hair salo
 * **OpenAPI / Swagger UI documentation:** auto-generated with springdoc-openapi, available at `/swagger-ui.html` and `/v3/api-docs`.
 * **Configuration profiles:** separate `dev` and `prod` environments. Schema is managed with **Flyway migrations** (`src/main/resources/db/migration/`). Under the `prod` profile the app **refuses to start** without storage credentials rather than falling back to local disk: on an ephemeral container that failure is silent — uploads succeed and vanish on the next deploy.
 * **Observability (Actuator + Prometheus + Grafana):** `/actuator/prometheus` publishes JVM, HTTP, connection-pool and **business** metrics: appointments by state and service, payments, sign-ups, reminders, password-reset attempts and the assistant's token usage. The business counters are fed by the **domain events that already existed for the emails**, so no service was modified to measure it — and they count in `AFTER_COMMIT`, because an appointment whose insert rolled back is not an appointment. Three decisions are the design: only `health` and `prometheus` are exposed and Spring Security `denyAll`s everything else, since `env`/`beans`/`configprops` would dump the whole configuration with the Stripe and Gemini keys in it; the metrics endpoint is guarded by a **token in a header** rather than a JWT, because a scraper that runs every 30 seconds cannot renew one that expires; and the **mail health indicator is off**, because Actuator enables it just for having the mail starter and an SMTP hiccup would put the global health in `DOWN` — Render reads that endpoint, so a mail problem would have it restart a backend whose appointments and payments work perfectly.
-* **Test suite (381 tests):** 336 unit tests covering the business logic without Spring context or database, plus 45 integration tests with **Testcontainers** (real PostgreSQL in Docker) covering authentication, ownership rules, statistics, payments, sales and commissions, role-based appointment closing and the full Stripe webhook flow with real signature verification.
+* **Test suite (382 tests):** 336 unit tests covering the business logic without Spring context or database, plus 46 integration tests with **Testcontainers** (real PostgreSQL in Docker) covering authentication, ownership rules, statistics, payments, sales and commissions, role-based appointment closing and the full Stripe webhook flow with real signature verification.
 
 ## Project Structure
 
@@ -96,7 +96,7 @@ Each business module follows the same layout: JPA entity, controller, service, r
 
 ## Tests
 
-**381 tests** run in CI on every push (GitHub Actions).
+**382 tests** run in CI on every push (GitHub Actions).
 
 ### Unit tests (336)
 
@@ -136,7 +136,7 @@ They cover all business logic without Spring context or database (a few seconds)
 ./mvnw test -Dtest='!*IntegrationTest'
 ```
 
-### Integration tests (45, Testcontainers)
+### Integration tests (46, Testcontainers)
 
 They boot the full application against a **real PostgreSQL** started in Docker (`@ServiceConnection`), with Flyway migrations applied:
 
@@ -147,7 +147,7 @@ They boot the full application against a **real PostgreSQL** started in Docker (
 * **OwnershipIntegrationTest** (2) — a user cannot read (GET) or edit (PUT) someone else's appointment (403); `/api/usuarios/me` never exposes the password.
 * **AsistenteApagadoIntegrationTest** (3) — with the assistant switched off (the default) the app **still starts** and its route answers **404, not 500**, which is what lets the client tell "not deployed" from "failed". The third pins the counterpoint: an unknown route that is **not** public answers 403, because Spring Security cuts in before the dispatcher and does not confirm to an anonymous caller which routes exist.
 * **MetricasIntegrationTest** (6) — who can read what from Actuator: `prometheus` answers 403 with no token, with a wrong token, and 200 with the right one; `env`, `beans`, `configprops` and `loggers` stay closed **even with the valid token**; `health` is public, shows no internals and **survives a broken SMTP** (this one caught a real bug: the mail indicator was putting health in `DOWN`, which would have had Render restart the backend in a loop). The sixth publishes a domain event and finds `peluqueria_citas_total` in the actual scrape — the only place where the metric name in the code and the one the dashboard queries are checked together.
-* **ProduccionIntegrationTest** (6) — sales and commission against real Postgres, the only place the native SQL (`DATE_TRUNC`, `TO_CHAR` and four JOINs) is actually checked: it adds up only what is completed **and paid**, leaving out no-shows, cancellations, another barber's work and completed-but-unpaid work (which comes back as outstanding); the per-service and monthly breakdowns; **the frozen amount wins** — the rate is raised after settling and sales do not move; the staff comparison ordered by amount; and who does not get in: a barber sees neither another's sales nor the comparison, a customer not even their own, and an account with the role but no profile gets a 404.
+* **ProduccionIntegrationTest** (7) — sales and commission against real Postgres, the only place the native SQL (`DATE_TRUNC`, `TO_CHAR` and four JOINs) is actually checked: it adds up only what is completed **and paid**, leaving out no-shows, cancellations, another barber's work and completed-but-unpaid work (which comes back as outstanding); the per-service and monthly breakdowns; **the frozen amount wins** — the rate is raised after settling and sales do not move; the staff comparison ordered by amount; and who does not get in: a barber sees neither another's sales nor the comparison, a customer not even their own, and an account with the role but no profile gets a 404. The seventh pins down the owner-who-also-cuts-hair case: an **ADMIN account linked to a profile** sees its own sales through `/produccion/mia` with no sub-role at all, because the role says what you may do and the profile says who does the work.
 * **CierreCitaIntegrationTest** (7) — closing over HTTP and what the `PELUQUERO` role may touch. Deliberately over HTTP: the rules for who reaches which appointment are **not** in `SecurityConfig` (`/api/citas/**` is "any authenticated user") but in the service, because they depend on the linked profile. A barber closes their own appointment and the amount is frozen; cannot close or even read a colleague's (403); the customer cancels their own but cannot mark it done, and never receives the internal notes; `COMPLETADA` through the old PUT is a 400; a finished closing is only correctable by an ADMIN, and correcting it stops it counting; the barber's listing is their schedule and not the shop's; and `usuarios`, `estadisticas`, `pagos` and barber management still answer 403.
 * **AuthIntegrationTest** (1) — full register/login flow over HTTP.
 

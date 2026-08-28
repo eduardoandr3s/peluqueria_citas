@@ -153,6 +153,22 @@ class ProduccionIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void unAdminConFichaVeSuPropiaProduccion() {
+        // El caso del dueno que ademas corta pelo. No hace falta ningun sub-rol: el rol dice
+        // que puede hacer y la ficha dice quien hace el trabajo, y se unen por usuario_id.
+        // /produccion/mia resuelve la ficha desde la cuenta autenticada, no desde el rol.
+        jdbcTemplate.update("UPDATE peluqueros SET usuario_id = ? WHERE id_peluquero = ?",
+                idUsuario("prod_admin@test.com"), peluqueroPepe);
+        cerrada(servTinte, peluqueroPepe, "2026-05-05T10:00:00", "COMPLETADA", "50.00", "10.00", true);
+
+        Map<String, Object> body = getMap("/api/produccion/mia?desde=2026-05-01&hasta=2026-05-31", tokenAdmin);
+
+        assertEquals("Pepe PROD", body.get("nombre"));
+        assertImporte("50.00", body.get("importeVendido"));
+        assertImporte("5.00", body.get("comision"));
+    }
+
+    @Test
     void adminVeLaProduccionDeCualquiera() {
         cerrada(servTinte, peluqueroPepe, "2026-05-05T10:00:00", "COMPLETADA", "50.00", "10.00", true);
 

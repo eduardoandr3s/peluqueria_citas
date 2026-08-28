@@ -70,7 +70,7 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 * **Documentación OpenAPI / Swagger UI:** generada automáticamente con springdoc-openapi, disponible en `/swagger-ui.html` y `/v3/api-docs`.
 * **Perfiles de configuración:** entornos `dev` y `prod` separados. El esquema se gestiona con **migraciones Flyway** (`src/main/resources/db/migration/`). Con el perfil `prod` la aplicación **se niega a arrancar** sin credenciales de almacén en vez de caer al disco local: en un contenedor efímero ese fallo es silencioso —las subidas funcionan y desaparecen en el siguiente despliegue—.
 * **Observabilidad (Actuator + Prometheus + Grafana):** `/actuator/prometheus` publica métricas de JVM, HTTP, pool de conexiones y **de negocio**: citas por estado y por servicio, pagos, altas, recordatorios, intentos de recuperación de contraseña y consumo de tokens del asistente. Los contadores de negocio se alimentan de los **eventos de dominio que ya existían para los correos**, así que no se modificó ningún service para medir, y cuentan en `AFTER_COMMIT`, porque una cita cuyo insert hizo rollback no es una cita. Tres decisiones son el diseño: solo se exponen `health` y `prometheus` y Spring Security cierra el resto con `denyAll`, porque `env`/`beans`/`configprops` volcarían la configuración entera con las claves de Stripe y de Gemini dentro; el endpoint de métricas se protege con un **token en cabecera** y no con un JWT, porque un scraper que corre cada 30 segundos no puede renovar uno que caduca; y el **indicador de correo no cuenta para el health**, porque Actuator lo activa solo por tener el starter de mail y un hipo del SMTP pondría el health global en `DOWN` — Render lee ese endpoint, así que un problema de correo reiniciaría en bucle un backend cuyas citas y pagos funcionan perfectamente.
-* **Suite de tests (381 tests):** 336 tests unitarios que cubren la lógica de negocio sin Spring context ni base de datos, más 45 tests de integración con **Testcontainers** (PostgreSQL real en Docker) que cubren autenticación, reglas de ownership, estadísticas, pagos, producción y comisiones, el cierre de citas por rol y el flujo completo del webhook de Stripe con verificación de firma real.
+* **Suite de tests (382 tests):** 336 tests unitarios que cubren la lógica de negocio sin Spring context ni base de datos, más 46 tests de integración con **Testcontainers** (PostgreSQL real en Docker) que cubren autenticación, reglas de ownership, estadísticas, pagos, producción y comisiones, el cierre de citas por rol y el flujo completo del webhook de Stripe con verificación de firma real.
 
 ## Estructura del proyecto
 
@@ -96,7 +96,7 @@ Todos los módulos de negocio siguen el mismo esquema: entidad JPA, controller, 
 
 ## Tests
 
-**381 tests** se ejecutan en CI en cada push (GitHub Actions).
+**382 tests** se ejecutan en CI en cada push (GitHub Actions).
 
 ### Tests unitarios (336)
 
@@ -136,7 +136,7 @@ Cubren toda la lógica de negocio sin Spring context ni base de datos (pocos seg
 ./mvnw test -Dtest='!*IntegrationTest'
 ```
 
-### Tests de integración (45, Testcontainers)
+### Tests de integración (46, Testcontainers)
 
 Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Docker (`@ServiceConnection`), con las migraciones Flyway aplicadas:
 
@@ -147,7 +147,7 @@ Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Dock
 * **OwnershipIntegrationTest** (2) — un usuario no puede leer (GET) ni editar (PUT) la cita de otro (403); `/api/usuarios/me` nunca expone la contraseña.
 * **AsistenteApagadoIntegrationTest** (3) — con el asistente apagado (el valor por defecto) la aplicación **arranca igual** y su ruta responde **404 y no 500**, que es lo que permite al cliente distinguir «no está desplegado» de «ha fallado». El tercero fija el contrapunto: una ruta inexistente que **no** es pública responde 403, porque Spring Security corta antes de llegar al dispatcher y no confirma a un anónimo qué rutas existen.
 * **MetricasIntegrationTest** (6) — quién puede leer qué de Actuator: `prometheus` responde 403 sin token, 403 con un token equivocado y 200 con el bueno; `env`, `beans`, `configprops` y `loggers` siguen cerrados **incluso con el token válido**; `health` es público, no cuenta nada de dentro y **aguanta un SMTP roto** (este cazó un fallo de verdad: el indicador de correo ponía el health en `DOWN`, y eso habría hecho que Render reiniciara el backend en bucle). El sexto publica un evento de dominio y encuentra `peluqueria_citas_total` en el scrape real, que es el único sitio donde se comprueban juntos el nombre de la métrica en el código y el que consulta el dashboard.
-* **ProduccionIntegrationTest** (6) — producción y comisión contra Postgres de verdad, que es el único sitio donde se comprueba el SQL nativo (`DATE_TRUNC`, `TO_CHAR` y cuatro JOIN): suma solo lo completado **y cobrado** y deja fuera lo no asistido, lo anulado, lo de otro peluquero y lo completado sin cobrar (que sale como pendiente); el desglose por servicio y el mensual; **el importe congelado manda** —se sube la tarifa después de liquidar y la producción no se mueve—; la comparativa de la plantilla ordenada por importe; y quién no llega: un peluquero no ve la producción de otro ni la comparativa, un cliente no ve ni la suya, y una cuenta con el rol y sin ficha recibe 404.
+* **ProduccionIntegrationTest** (7) — producción y comisión contra Postgres de verdad, que es el único sitio donde se comprueba el SQL nativo (`DATE_TRUNC`, `TO_CHAR` y cuatro JOIN): suma solo lo completado **y cobrado** y deja fuera lo no asistido, lo anulado, lo de otro peluquero y lo completado sin cobrar (que sale como pendiente); el desglose por servicio y el mensual; **el importe congelado manda** —se sube la tarifa después de liquidar y la producción no se mueve—; la comparativa de la plantilla ordenada por importe; y quién no llega: un peluquero no ve la producción de otro ni la comparativa, un cliente no ve ni la suya, y una cuenta con el rol y sin ficha recibe 404. El séptimo fija el caso del dueño que además corta pelo: una cuenta **ADMIN vinculada a una ficha** ve su propia producción por `/produccion/mia` sin ningún sub-rol, porque el rol dice qué puede hacer y la ficha dice quién hace el trabajo.
 * **CierreCitaIntegrationTest** (7) — el cierre por HTTP y lo que el rol `PELUQUERO` puede tocar. Va por HTTP a propósito: las reglas de quién llega a qué cita **no** están en `SecurityConfig` (`/api/citas/**` es «cualquiera autenticado») sino en el service, porque dependen de la ficha vinculada. Cierra su cita y se congela el importe; no puede cerrar ni ver la de un compañero (403); el cliente anula la suya pero no la da por realizada, y no recibe las notas internas; `COMPLETADA` por el PUT de siempre es 400; un cierre ya hecho solo lo corrige el ADMIN, y al corregirlo deja de sumar; el listado del peluquero es su agenda y no la de la casa; y `usuarios`, `estadisticas`, `pagos` y la gestión de peluqueros le siguen respondiendo 403.
 * **AuthIntegrationTest** (1) — flujo completo de registro/login por HTTP.
 
