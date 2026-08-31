@@ -8,6 +8,8 @@ import com.segovia.peluqueria.cita.dto.CitaResponseDTO;
 import com.segovia.peluqueria.cita.dto.CitaUpdateDTO;
 import com.segovia.peluqueria.exception.ConflictoHorarioException;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
+import com.segovia.peluqueria.permiso.Permiso;
+import com.segovia.peluqueria.permiso.PermisoService;
 import com.segovia.peluqueria.notificacion.evento.CitaAgendadaEvent;
 import com.segovia.peluqueria.notificacion.evento.CitaAnuladaEvent;
 import com.segovia.peluqueria.notificacion.evento.CitaModificadaEvent;
@@ -63,6 +65,7 @@ public class CitaService {
     private final CalendarioService calendario;
     private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
+    private final PermisoService permisoService;
 
     public CitaService(CitaRepository citaRepository,
                        UsuarioRepository usuarioRepository,
@@ -73,7 +76,8 @@ public class CitaService {
                        HorarioProperties horario,
                        CalendarioService calendario,
                        ApplicationEventPublisher eventPublisher,
-                       Clock clock) {
+                       Clock clock,
+                       PermisoService permisoService) {
         this.citaRepository = citaRepository;
         this.usuarioRepository = usuarioRepository;
         this.servicioRepository = servicioRepository;
@@ -84,6 +88,7 @@ public class CitaService {
         this.calendario = calendario;
         this.eventPublisher = eventPublisher;
         this.clock = clock;
+        this.permisoService = permisoService;
     }
 
     @Transactional(readOnly = true)
@@ -268,6 +273,7 @@ public class CitaService {
         verificarAcceso(citaExistente, actual);
 
         if (request.getFechaHora() != null) {
+            verificarPuedeReprogramar(actual);
             citaExistente.setFechaHora(request.getFechaHora());
         }
 
@@ -448,6 +454,21 @@ public class CitaService {
     private Usuario obtenerUsuarioPorEmail(String email) {
         return usuarioRepository.findByEmail(email)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con email: " + email));
+    }
+
+    /**
+     * Mover una cita de fecha descuadra el hueco de un companero, asi que para un
+     * PELUQUERO va detras del permiso CITA_REPROGRAMAR, que nace apagado. No toca al
+     * cliente, que sigue pudiendo mover la suya, ni al ADMIN, que ve la agenda entera.
+     *
+     * <p>El permiso solo estrecha: quien llega hasta aqui ya paso por verificarAcceso.
+     */
+    private void verificarPuedeReprogramar(Usuario actual) {
+        if (actual.getRol() == Rol.PELUQUERO
+                && !permisoService.tienePermiso(Rol.PELUQUERO, Permiso.CITA_REPROGRAMAR)) {
+            throw new AccessDeniedException(
+                    "Cambiar la fecha de una cita no esta habilitado para tu rol. Pideselo a un administrador.");
+        }
     }
 
     private boolean esAdmin(Usuario usuario) {

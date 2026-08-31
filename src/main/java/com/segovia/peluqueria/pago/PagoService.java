@@ -6,6 +6,10 @@ import com.segovia.peluqueria.cita.EstadoCita;
 import com.segovia.peluqueria.exception.EstadoInvalidoException;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.notificacion.evento.PagoConfirmadoEvent;
+import com.segovia.peluqueria.peluquero.Peluquero;
+import com.segovia.peluqueria.peluquero.PeluqueroRepository;
+import com.segovia.peluqueria.permiso.Permiso;
+import com.segovia.peluqueria.permiso.PermisoService;
 import com.segovia.peluqueria.pago.PaymentGateway.EventoPasarela;
 import com.segovia.peluqueria.pago.PaymentGateway.IntentPasarela;
 import com.segovia.peluqueria.pago.dto.PagoResponseDTO;
@@ -62,6 +66,8 @@ public class PagoService {
     private final PaymentGateway paymentGateway;
     private final ApplicationEventPublisher eventPublisher;
     private final ReciboPdfGenerador reciboPdfGenerador;
+    private final PeluqueroRepository peluqueroRepository;
+    private final PermisoService permisoService;
 
     public PagoService(PagoRepository pagoRepository,
                        CitaRepository citaRepository,
@@ -69,7 +75,9 @@ public class PagoService {
                        StripeEventoRepository stripeEventoRepository,
                        PaymentGateway paymentGateway,
                        ApplicationEventPublisher eventPublisher,
-                       ReciboPdfGenerador reciboPdfGenerador) {
+                       ReciboPdfGenerador reciboPdfGenerador,
+                       PeluqueroRepository peluqueroRepository,
+                       PermisoService permisoService) {
         this.pagoRepository = pagoRepository;
         this.citaRepository = citaRepository;
         this.usuarioRepository = usuarioRepository;
@@ -77,6 +85,8 @@ public class PagoService {
         this.paymentGateway = paymentGateway;
         this.eventPublisher = eventPublisher;
         this.reciboPdfGenerador = reciboPdfGenerador;
+        this.peluqueroRepository = peluqueroRepository;
+        this.permisoService = permisoService;
     }
 
     @Transactional
@@ -190,11 +200,15 @@ public class PagoService {
     @Transactional
     public PagoResponseDTO registrarPagoManual(Integer citaId, MetodoPago metodoPago, String emailAutenticado) {
         Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
-        if (actual.getRol() != Rol.ADMIN) {
-            throw new AccessDeniedException("Solo un administrador puede registrar pagos manuales.");
-        }
+        // El rol y el permiso se comprueban antes de tocar la base de datos: a quien no
+        // puede cobrar se le dice que no puede, no que la cita no existe.
+        verificarRolPuedeCobrar(actual);
 
         Cita cita = obtenerCitaPorId(citaId);
+        if (actual.getRol() != Rol.ADMIN && !esSuAgenda(cita, actual)) {
+            throw new AccessDeniedException("Solo puedes cobrar las citas de tu agenda.");
+        }
+
         if (cita.getEstado() == EstadoCita.ANULADA) {
             throw new IllegalArgumentException("No se puede pagar una cita anulada.");
         }
@@ -221,6 +235,43 @@ public class PagoService {
         marcarPagadoYConfirmarCita(pago);
 
         return PagoResponseDTO.desde(pago);
+    }
+
+    /**
+     * Si el rol de quien pide puede cobrar en efectivo. Un ADMIN siempre; un PELUQUERO
+     * solo con el permiso {@link Permiso#PAGO_MANUAL_REGISTRAR} encendido. Que ademas la
+     * cita sea suya se comprueba aparte, con la cita ya cargada: el permiso dice que su
+     * rol puede cobrar, no que pueda cobrar lo de otro.
+     *
+     * <p>El orden importa y es el de siempre: la regla de rol ya se aplico en
+     * SecurityConfig y aqui el permiso solo estrecha. Encenderlo no le da la caja a nadie
+     * que no la tuviera al alcance por su rol.
+     */
+    private void verificarRolPuedeCobrar(Usuario actual) {
+        if (actual.getRol() == Rol.ADMIN) {
+            return;
+        }
+        if (actual.getRol() != Rol.PELUQUERO) {
+            throw new AccessDeniedException("No tienes permiso para registrar pagos manuales.");
+        }
+        if (!permisoService.tienePermiso(actual.getRol(), Permiso.PAGO_MANUAL_REGISTRAR)) {
+            throw new AccessDeniedException(
+                    "Registrar cobros en efectivo no esta habilitado para tu rol. Pideselo a un administrador.");
+        }
+    }
+
+    /**
+     * Si la cita esta asignada a la ficha de peluquero vinculada a esa cuenta. Sin ficha
+     * no hay agenda, asi que no hay nada que cobrar.
+     */
+    private boolean esSuAgenda(Cita cita, Usuario actual) {
+        if (cita.getPeluquero() == null) {
+            return false;
+        }
+        return peluqueroRepository.findByUsuarioIdUsuario(actual.getIdUsuario())
+                .map(Peluquero::getIdPeluquero)
+                .map(id -> id.equals(cita.getPeluquero().getIdPeluquero()))
+                .orElse(false);
     }
 
     @Transactional(readOnly = true)

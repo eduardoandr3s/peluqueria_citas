@@ -11,6 +11,10 @@ import com.segovia.peluqueria.pago.PaymentGateway.IntentPasarela;
 import com.segovia.peluqueria.pago.dto.PagoResponseDTO;
 import com.segovia.peluqueria.pago.dto.PaymentIntentResponseDTO;
 import com.segovia.peluqueria.servicio.Servicio;
+import com.segovia.peluqueria.peluquero.Peluquero;
+import com.segovia.peluqueria.peluquero.PeluqueroRepository;
+import com.segovia.peluqueria.permiso.Permiso;
+import com.segovia.peluqueria.permiso.PermisoService;
 import com.segovia.peluqueria.usuario.Rol;
 import com.segovia.peluqueria.usuario.Usuario;
 import com.segovia.peluqueria.usuario.UsuarioRepository;
@@ -39,6 +43,7 @@ class PagoServiceTest {
     private static final String EMAIL_ADMIN = "admin@test.com";
     private static final String EMAIL_CLIENTE = "carlos@test.com";
     private static final String EMAIL_OTRO = "otro@test.com";
+    private static final String EMAIL_PELUQUERO = "laura@test.com";
     private static final String INTENT_ID = "pi_123";
     private static final String EVENTO_ID = "evt_123";
     private static final String FIRMA = "firma-test";
@@ -51,6 +56,8 @@ class PagoServiceTest {
     private PaymentGateway paymentGateway;
     private ApplicationEventPublisher eventPublisher;
     private ReciboPdfGenerador reciboPdfGenerador;
+    private PeluqueroRepository peluqueroRepository;
+    private PermisoService permisoService;
     private PagoService pagoService;
 
     @BeforeEach
@@ -64,8 +71,14 @@ class PagoServiceTest {
         // El generador va mockeado: aqui se prueba quien puede pedir un recibo y cuando, no
         // como sale el PDF. De eso se encarga ReciboPdfGeneradorTest, que si lo renderiza.
         reciboPdfGenerador = mock(ReciboPdfGenerador.class);
+        peluqueroRepository = mock(PeluqueroRepository.class);
+        permisoService = mock(PermisoService.class);
+        // Por defecto ninguna cuenta tiene ficha: los tests que cobran como peluquero la
+        // stubbean. Un ADMIN no pasa por aqui, asi que el resto de la clase no se entera.
+        when(peluqueroRepository.findByUsuarioIdUsuario(anyInt())).thenReturn(Optional.empty());
         pagoService = new PagoService(pagoRepository, citaRepository, usuarioRepository,
-                stripeEventoRepository, paymentGateway, eventPublisher, reciboPdfGenerador);
+                stripeEventoRepository, paymentGateway, eventPublisher, reciboPdfGenerador,
+                peluqueroRepository, permisoService);
 
         Usuario admin = new Usuario();
         admin.setIdUsuario(99);
@@ -403,6 +416,94 @@ class PagoServiceTest {
 
         assertThrows(IllegalArgumentException.class,
                 () -> pagoService.registrarPagoManual(1, MetodoPago.EFECTIVO, EMAIL_ADMIN));
+    }
+
+    // ---------- el permiso PAGO_MANUAL_REGISTRAR ----------
+
+    @Test
+    void registrarPagoManual_peluqueroSinElPermiso_lanzaAccessDenied() {
+        crearPeluqueroConFicha();
+
+        AccessDeniedException ex = assertThrows(AccessDeniedException.class,
+                () -> pagoService.registrarPagoManual(1, MetodoPago.EFECTIVO, EMAIL_PELUQUERO));
+
+        assertTrue(ex.getMessage().contains("no esta habilitado"));
+        // Se corta antes de tocar la base de datos: el permiso es del rol, no de la cita.
+        verify(citaRepository, never()).findById(anyInt());
+    }
+
+    @Test
+    void registrarPagoManual_peluqueroConElPermisoYSuCita_cobra() {
+        Peluquero ficha = crearPeluqueroConFicha();
+        when(permisoService.tienePermiso(Rol.PELUQUERO, Permiso.PAGO_MANUAL_REGISTRAR)).thenReturn(true);
+
+        Cita cita = crearCitaPendiente();
+        cita.setPeluquero(ficha);
+        when(citaRepository.findById(1)).thenReturn(Optional.of(cita));
+        when(pagoRepository.findByCitaIdCita(1)).thenReturn(Optional.empty());
+        when(pagoRepository.save(any(Pago.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        PagoResponseDTO resultado = pagoService.registrarPagoManual(1, MetodoPago.EFECTIVO, EMAIL_PELUQUERO);
+
+        assertEquals(EstadoPago.PAGADO, resultado.getEstadoPago());
+        assertEquals(EstadoCita.CONFIRMADA, cita.getEstado());
+    }
+
+    @Test
+    void registrarPagoManual_peluqueroConElPermisoPeroCitaDeOtro_lanzaAccessDenied() {
+        crearPeluqueroConFicha();
+        when(permisoService.tienePermiso(Rol.PELUQUERO, Permiso.PAGO_MANUAL_REGISTRAR)).thenReturn(true);
+
+        Peluquero companero = new Peluquero();
+        companero.setIdPeluquero(77);
+        Cita cita = crearCitaPendiente();
+        cita.setPeluquero(companero);
+        when(citaRepository.findById(1)).thenReturn(Optional.of(cita));
+
+        // El permiso dice que su rol puede cobrar, no que pueda cobrar lo de un companero.
+        AccessDeniedException ex = assertThrows(AccessDeniedException.class,
+                () -> pagoService.registrarPagoManual(1, MetodoPago.EFECTIVO, EMAIL_PELUQUERO));
+        assertTrue(ex.getMessage().contains("tu agenda"));
+    }
+
+    @Test
+    void registrarPagoManual_peluqueroConElPermisoYCitaSinAsignar_lanzaAccessDenied() {
+        crearPeluqueroConFicha();
+        when(permisoService.tienePermiso(Rol.PELUQUERO, Permiso.PAGO_MANUAL_REGISTRAR)).thenReturn(true);
+        when(citaRepository.findById(1)).thenReturn(Optional.of(crearCitaPendiente()));
+
+        assertThrows(AccessDeniedException.class,
+                () -> pagoService.registrarPagoManual(1, MetodoPago.EFECTIVO, EMAIL_PELUQUERO));
+    }
+
+    @Test
+    void registrarPagoManual_adminNoPasaPorElPermiso() {
+        Cita cita = crearCitaPendiente();
+        when(citaRepository.findById(1)).thenReturn(Optional.of(cita));
+        when(pagoRepository.findByCitaIdCita(1)).thenReturn(Optional.empty());
+        when(pagoRepository.save(any(Pago.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // Cobra una cita sin peluquero asignado y con todos los permisos apagados.
+        pagoService.registrarPagoManual(1, MetodoPago.EFECTIVO, EMAIL_ADMIN);
+
+        verify(permisoService, never()).tienePermiso(any(), any());
+    }
+
+    /** Cuenta con rol PELUQUERO vinculada a la ficha 5, ya registrada en los mocks. */
+    private Peluquero crearPeluqueroConFicha() {
+        Usuario cuenta = new Usuario();
+        cuenta.setIdUsuario(50);
+        cuenta.setNombre("Laura");
+        cuenta.setEmail(EMAIL_PELUQUERO);
+        cuenta.setRol(Rol.PELUQUERO);
+        cuenta.setActivo(true);
+        when(usuarioRepository.findByEmail(EMAIL_PELUQUERO)).thenReturn(Optional.of(cuenta));
+
+        Peluquero ficha = new Peluquero();
+        ficha.setIdPeluquero(5);
+        ficha.setNombre("Laura");
+        when(peluqueroRepository.findByUsuarioIdUsuario(50)).thenReturn(Optional.of(ficha));
+        return ficha;
     }
 
     // ---------- reembolsar ----------

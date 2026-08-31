@@ -126,6 +126,14 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/dias-bloqueados").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/dias-bloqueados/**").hasRole("ADMIN")
 
+                        // La matriz de permisos la configura el ADMIN. /mios es de cualquier
+                        // autenticado: son sus propios permisos, y el frontend los pide al entrar
+                        // para no pintar botones que acabarian en un 403. Va ANTES de las dos
+                        // reglas de ADMIN, que si no se lo tragarian.
+                        .requestMatchers(HttpMethod.GET, "/api/permisos/mios").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/permisos").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/permisos").hasRole("ADMIN")
+
                         .requestMatchers("/api/estadisticas/**").hasRole("ADMIN")
 
                         .requestMatchers("/api/pagos/webhook").permitAll()
@@ -134,7 +142,12 @@ public class SecurityConfig {
                         // tambien el cliente (el servicio ya comprueba que la cita sea suya).
                         .requestMatchers(HttpMethod.GET, "/api/pagos").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/pagos/**").authenticated()
-                        .requestMatchers(HttpMethod.POST, "/api/pagos/manual").hasRole("ADMIN")
+                        // El cobro en efectivo lo abre el rol, pero quien lo ejerce de verdad lo
+                        // decide el permiso PAGO_MANUAL_REGISTRAR, que nace apagado, y ademas solo
+                        // sobre las citas de su agenda. Nada de eso se puede resolver aqui, asi
+                        // que la comprobacion fina la hace PagoService: esta linea solo deja
+                        // llegar al servicio a quien podria llegar a tenerlo.
+                        .requestMatchers(HttpMethod.POST, "/api/pagos/manual").hasAnyRole("PELUQUERO", "ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/pagos/*/reembolsar").hasRole("ADMIN")
 
                         // Observabilidad. health es publico porque lo consulta el health check de

@@ -61,6 +61,7 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 * **Notificaciones por correo:** emails dirigidos por eventos (registro, cita agendada, modificada, anulada, pago confirmado, cambios de contraseña) desacoplados de la lógica de negocio mediante eventos de Spring (`@TransactionalEventListener(AFTER_COMMIT)`), más un **recordatorio de cita 24h antes** enviado por un scheduler (corre cada hora, `Clock` inyectable para testabilidad, el flag `recordatorio_enviado` garantiza un único envío).
 * **Tres roles, con `PELUQUERO` en medio:** un `USER` es el cliente, un `ADMIN` lo puede todo, y un `PELUQUERO` ve **su agenda** (las citas asignadas a su ficha, no las de la casa), las cierra y consulta su propia producción. La ficha de `peluqueros` y la cuenta de `usuarios` se enlazan con una FK única y **opcional en los dos sentidos**: una ficha sin cuenta es un profesional por el que agenda el admin, y una cuenta con el rol y sin ficha simplemente no tiene agenda. No hay jerarquía implícita de Spring Security: cada regla de `SecurityConfig` dice explícitamente quién pasa, porque una jerarquía en un fichero y las reglas en otro es como se abre un endpoint sin que nadie lo note.
 * **Cierre de cita y producción:** `PATCH /api/citas/{id}/cierre` deja la cita en `COMPLETADA`, `NO_ASISTIO` o `ANULADA` con observaciones y un `clienteContactado`, y sella quién la cerró y cuándo. Al completar **congela** en la cita el precio del servicio y el porcentaje de comisión, y esa copia es lo que sostiene el resto: sin ella, subir una tarifa en junio cambiaría la producción y las comisiones ya liquidadas de marzo. `GET /api/produccion/mia` suma **solo lo completado Y cobrado** —el dinero se cuenta cuando ha entrado, y el efectivo entra por el pago manual—, con el trabajo hecho y sin cobrar aparte para que no desaparezca de ninguna pantalla. La comisión es un porcentaje por peluquero con **excepciones por servicio**, porque un tinte no comisiona como un corte.
+* **Permisos por rol configurables:** un administrador afina desde el panel qué puede hacer cada rol —hoy, que un peluquero cobre en efectivo sus propias citas (`PAGO_MANUAL_REGISTRAR`) y que mueva de fecha las de su agenda (`CITA_REPROGRAMAR`)—. La regla que lo sujeta todo es que **un permiso estrecha y nunca abre**: se consultan desde los services, después de la regla de rol de `SecurityConfig`, así que encender uno no concede nada que el rol ya prohibiera. El catálogo es un enum del código y la base de datos solo guarda el estado, con la ausencia de fila valiendo el valor por defecto: desplegar un permiso nuevo no cambia lo que puede hacer nadie hasta que se enciende a mano.
 * **Control de propiedad (ownership):** un `USER` solo puede ver, modificar o eliminar sus propias citas y sus propios datos; un `PELUQUERO` llega además a las citas asignadas a su ficha, pero **no a las de un compañero**; un `ADMIN` puede acceder a todo. Los accesos no autorizados devuelven `403 Forbidden`.
 * **Patrón DTO:** cada entidad tiene DTOs separados para creación, actualización parcial y respuesta. Nunca se expone información sensible.
 * **Paginación y ordenación:** los listados de citas y usuarios están paginados (`page`, `size`, `sort`) y devuelven un `Page` de Spring Data.
@@ -70,7 +71,7 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 * **Documentación OpenAPI / Swagger UI:** generada automáticamente con springdoc-openapi, disponible en `/swagger-ui.html` y `/v3/api-docs`.
 * **Perfiles de configuración:** entornos `dev` y `prod` separados. El esquema se gestiona con **migraciones Flyway** (`src/main/resources/db/migration/`). Con el perfil `prod` la aplicación **se niega a arrancar** sin credenciales de almacén en vez de caer al disco local: en un contenedor efímero ese fallo es silencioso —las subidas funcionan y desaparecen en el siguiente despliegue—.
 * **Observabilidad (Actuator + Prometheus + Grafana):** `/actuator/prometheus` publica métricas de JVM, HTTP, pool de conexiones y **de negocio**: citas por estado y por servicio, pagos, altas, recordatorios, intentos de recuperación de contraseña y consumo de tokens del asistente. Los contadores de negocio se alimentan de los **eventos de dominio que ya existían para los correos**, así que no se modificó ningún service para medir, y cuentan en `AFTER_COMMIT`, porque una cita cuyo insert hizo rollback no es una cita. Tres decisiones son el diseño: solo se exponen `health` y `prometheus` y Spring Security cierra el resto con `denyAll`, porque `env`/`beans`/`configprops` volcarían la configuración entera con las claves de Stripe y de Gemini dentro; el endpoint de métricas se protege con un **token en cabecera** y no con un JWT, porque un scraper que corre cada 30 segundos no puede renovar uno que caduca; y el **indicador de correo no cuenta para el health**, porque Actuator lo activa solo por tener el starter de mail y un hipo del SMTP pondría el health global en `DOWN` — Render lee ese endpoint, así que un problema de correo reiniciaría en bucle un backend cuyas citas y pagos funcionan perfectamente.
-* **Suite de tests (382 tests):** 336 tests unitarios que cubren la lógica de negocio sin Spring context ni base de datos, más 46 tests de integración con **Testcontainers** (PostgreSQL real en Docker) que cubren autenticación, reglas de ownership, estadísticas, pagos, producción y comisiones, el cierre de citas por rol y el flujo completo del webhook de Stripe con verificación de firma real.
+* **Suite de tests (411 tests):** 356 tests unitarios que cubren la lógica de negocio sin Spring context ni base de datos, más 55 tests de integración con **Testcontainers** (PostgreSQL real en Docker) que cubren autenticación, reglas de ownership, estadísticas, pagos, producción y comisiones, el cierre de citas por rol y el flujo completo del webhook de Stripe con verificación de firma real.
 
 ## Estructura del proyecto
 
@@ -86,6 +87,7 @@ com.segovia.peluqueria/
 ├── notificacion/   # Eventos de dominio, correos y scheduler del recordatorio 24h
 ├── pago/           # Pagos: Stripe PaymentIntents, webhooks, pagos manuales, reembolsos
 ├── peluquero/      # Peluqueros: ficha, cuenta vinculada, comisión y excepciones por servicio
+├── permiso/        # Permisos por rol configurables desde el panel (estrechan, nunca abren)
 ├── produccion/     # Producción y comisión por peluquero: lo vendido, lo cobrado y lo pendiente
 ├── security/       # SecurityConfig, servicio y filtro JWT, CORS
 ├── servicio/       # Catálogo de servicios
@@ -96,17 +98,17 @@ Todos los módulos de negocio siguen el mismo esquema: entidad JPA, controller, 
 
 ## Tests
 
-**382 tests** se ejecutan en CI en cada push (GitHub Actions).
+**411 tests** se ejecutan en CI en cada push (GitHub Actions).
 
-### Tests unitarios (336)
+### Tests unitarios (356)
 
 Cubren toda la lógica de negocio sin Spring context ni base de datos (pocos segundos):
 
 | Clase | Tests | Cobertura |
 |-------|-------|-----------|
-| CitaServiceTest | 64 | Agendar, horario laboral, días cerrados, conflictos, CRUD, ownership, disponibilidad, paginación, validación de peluquero, auto-confirmación al pagar, y el **cierre**: congelar precio y comisión al completar, no completar lo que no ha empezado, un cliente solo puede anular, un peluquero no reescribe un cierre hecho ni toca la agenda de otro, el PUT rechaza `COMPLETADA`, y el cliente no recibe observaciones ni comisión |
+| CitaServiceTest | 67 | Agendar, horario laboral, días cerrados, conflictos, CRUD, ownership, disponibilidad, paginación, validación de peluquero, auto-confirmación al pagar, y el **cierre**: congelar precio y comisión al completar, no completar lo que no ha empezado, un cliente solo puede anular, un peluquero no reescribe un cierre hecho ni toca la agenda de otro, el PUT rechaza `COMPLETADA`, y el cliente no recibe observaciones ni comisión |
 | UsuarioServiceTest | 40 | CRUD, email duplicado, hashing, soft delete, ownership, reactivar, paginación, búsqueda, subir/borrar avatar |
-| PagoServiceTest | 32 | PaymentIntents, webhooks, pago manual, reembolsos, polling, concurrencia, quién puede pedir un recibo y en qué estados |
+| PagoServiceTest | 37 | PaymentIntents, webhooks, pago manual, reembolsos, polling, concurrencia, quién puede pedir un recibo y en qué estados, y quién puede cobrar en efectivo: un peluquero necesita el permiso **y** que la cita sea de su agenda, mientras que un ADMIN no pasa por los permisos |
 | CalendarioServiceTest | 17 | Días de la semana cerrados, bloquear/desbloquear fechas, fecha pasada, duplicados, días con citas vivas, rangos de días cerrados |
 | AsistenteHerramientasTest | 11 | Las herramientas del asistente: delegación en los services reales, que solo viaje al modelo lo que necesita (ni URLs de imágenes ni descripciones), tope del rango de días cerrados, fecha inválida traducida a un mensaje que el modelo puede corregir, y que «hoy» salga del `Clock` y no de una suposición |
 | AsistenteServiceTest | 9 | Traducción del historial al rol correcto, lectura del consumo de tokens, y detección de cuota agotada frente a cualquier otro fallo (incluida una causa cíclica, que colgaría el recorrido) |
@@ -120,6 +122,7 @@ Cubren toda la lógica de negocio sin Spring context ni base de datos (pocos seg
 | RefreshTokenServiceTest | 8 | Rotación, revocación, expiración |
 | JwtAuthenticationFilterTest | 7 | Filtro con/sin token, token inválido/expirado, cuenta desactivada, tokenVersion |
 | PasswordResetServiceTest | 7 | Solicitud, restablecimiento, expiración, anti-enumeración |
+| PermisoServiceTest | 12 | Permisos por rol: un ADMIN los tiene todos sin mirar la tabla, sin fila guardada vale el valor por defecto del enum, una fila encendida para un rol al que el permiso **no** se le configura no concede nada, una fila de un permiso retirado del código se ignora en vez de reventar, la tabla se lee una sola vez (caché) y escribir la tira para que apagar un permiso surta efecto sin reiniciar |
 | PeluqueroServiceTest | 19 | CRUD y soft delete, vínculo con la cuenta (rechaza un `USER`, una cuenta desactivada y una ya vinculada a otra ficha), desvincular, y la comisión aplicable: la excepción por servicio gana al porcentaje de la ficha |
 | ProduccionServiceTest | 9 | Mapeo del resumen, los desgloses y lo pendiente de cobro, cuenta sin ficha vinculada, rango invertido y de más de dos años, y el redondeo a dos decimales de lo que devuelve Postgres |
 | SupabaseStorageAlmacenTest | 7 | Llamadas REST al almacén con `MockRestServiceServer`: subir, borrar, firmar URL, y que las claves con carpeta no se escapan |
@@ -136,7 +139,7 @@ Cubren toda la lógica de negocio sin Spring context ni base de datos (pocos seg
 ./mvnw test -Dtest='!*IntegrationTest'
 ```
 
-### Tests de integración (46, Testcontainers)
+### Tests de integración (55, Testcontainers)
 
 Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Docker (`@ServiceConnection`), con las migraciones Flyway aplicadas:
 
@@ -149,6 +152,7 @@ Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Dock
 * **MetricasIntegrationTest** (6) — quién puede leer qué de Actuator: `prometheus` responde 403 sin token, 403 con un token equivocado y 200 con el bueno; `env`, `beans`, `configprops` y `loggers` siguen cerrados **incluso con el token válido**; `health` es público, no cuenta nada de dentro y **aguanta un SMTP roto** (este cazó un fallo de verdad: el indicador de correo ponía el health en `DOWN`, y eso habría hecho que Render reiniciara el backend en bucle). El sexto publica un evento de dominio y encuentra `peluqueria_citas_total` en el scrape real, que es el único sitio donde se comprueban juntos el nombre de la métrica en el código y el que consulta el dashboard.
 * **ProduccionIntegrationTest** (7) — producción y comisión contra Postgres de verdad, que es el único sitio donde se comprueba el SQL nativo (`DATE_TRUNC`, `TO_CHAR` y cuatro JOIN): suma solo lo completado **y cobrado** y deja fuera lo no asistido, lo anulado, lo de otro peluquero y lo completado sin cobrar (que sale como pendiente); el desglose por servicio y el mensual; **el importe congelado manda** —se sube la tarifa después de liquidar y la producción no se mueve—; la comparativa de la plantilla ordenada por importe; y quién no llega: un peluquero no ve la producción de otro ni la comparativa, un cliente no ve ni la suya, y una cuenta con el rol y sin ficha recibe 404. El séptimo fija el caso del dueño que además corta pelo: una cuenta **ADMIN vinculada a una ficha** ve su propia producción por `/produccion/mia` sin ningún sub-rol, porque el rol dice qué puede hacer y la ficha dice quién hace el trabajo.
 * **CierreCitaIntegrationTest** (7) — el cierre por HTTP y lo que el rol `PELUQUERO` puede tocar. Va por HTTP a propósito: las reglas de quién llega a qué cita **no** están en `SecurityConfig` (`/api/citas/**` es «cualquiera autenticado») sino en el service, porque dependen de la ficha vinculada. Cierra su cita y se congela el importe; no puede cerrar ni ver la de un compañero (403); el cliente anula la suya pero no la da por realizada, y no recibe las notas internas; `COMPLETADA` por el PUT de siempre es 400; un cierre ya hecho solo lo corrige el ADMIN, y al corregirlo deja de sumar; el listado del peluquero es su agenda y no la de la casa; y `usuarios`, `estadisticas`, `pagos` y la gestión de peluqueros le siguen respondiendo 403.
+* **PermisoIntegrationTest** (9) — los permisos configurables de punta a punta, que es donde se ve el reparto entre las dos capas: `SecurityConfig` deja llegar al service a quien *podría* tener el permiso y el service decide si de verdad lo tiene. Con el permiso apagado un peluquero recibe 403 al cobrar y el ADMIN cobra igual; encendido cobra la suya pero **no la de un compañero**; a un cliente no le sirve de nada que esté encendido, porque le para la regla de rol antes; apagarlo se lo quita otra vez (la caché no lo vuelve irrevocable); cada uno consulta los suyos y solo el ADMIN ve la matriz, que no ofrece casillas para ADMIN ni para cliente; y escribir una clave inexistente o un rol que no se configura responde 400 en vez de dejar una fila que nadie leería.
 * **AuthIntegrationTest** (1) — flujo completo de registro/login por HTTP.
 
 > Ningún test agenda «mañana»: un helper busca el **próximo lunes**, así que una ejecución en sábado no puede caer en un día cerrado y fallar por algo que no es lo que se está probando.
@@ -243,7 +247,16 @@ Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Dock
 | GET | `/api/produccion/peluquero/{id}` | ADMIN | La de cualquiera |
 | GET | `/api/produccion` | ADMIN | Comparativa de toda la plantilla, ordenada por importe |
 
-> Devuelve servicios realizados, importe vendido y comisión, más el desglose por servicio y por mes, y aparte `serviciosSinCobrar`/`importeSinCobrar`. Solo suma lo `COMPLETADA` **con el pago en `PAGADO`**; el efectivo entra registrando el pago manual, que hasta la fase de permisos configurables sigue siendo de ADMIN.
+> Devuelve servicios realizados, importe vendido y comisión, más el desglose por servicio y por mes, y aparte `serviciosSinCobrar`/`importeSinCobrar`. Solo suma lo `COMPLETADA` **con el pago en `PAGADO`**; el efectivo entra registrando el pago manual, que es de ADMIN salvo que se le conceda a un peluquero por permiso.
+
+### Permisos por rol
+| Método | Endpoint | Acceso | Descripción |
+|--------|----------|--------|-------------|
+| GET | `/api/permisos` | ADMIN | Matriz rol × permiso, con la descripción de cada uno |
+| PUT | `/api/permisos` | ADMIN | Aplicar cambios (`cambios[]` con `rol`, `clave` y `habilitado`). Se mandan solo las casillas que cambian, así dos administradores en pantallas distintas no se pisan |
+| GET | `/api/permisos/mios` | Autenticado | Lo concedido a la cuenta que pregunta, para que el frontend no ofrezca acciones que acabarían en 403 |
+
+> **Un permiso estrecha, nunca abre.** Se consultan desde los services y no desde `SecurityConfig`, así que el orden es siempre el mismo: primero la regla de rol de la ruta, después el permiso. Encender uno no concede nada que el rol ya prohibiera, y un ADMIN los tiene todos por rol y no aparece en la matriz. El catálogo lo define el enum `Permiso` del código y la tabla solo guarda el estado: la ausencia de fila significa «el valor por defecto», así que desplegar un permiso nuevo no cambia lo que puede hacer nadie hasta que se enciende a mano.
 
 ### Días cerrados
 | Método | Endpoint | Acceso | Descripción |
@@ -257,7 +270,7 @@ Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Dock
 |--------|----------|--------|-------------|
 | POST | `/api/pagos/crear-intent` | USER/ADMIN | Crear Stripe PaymentIntent para una cita |
 | POST | `/api/pagos/webhook` | Público | Webhook de Stripe (firma verificada, idempotente) |
-| POST | `/api/pagos/manual` | ADMIN | Registrar pago en efectivo o transferencia |
+| POST | `/api/pagos/manual` | PELUQUERO*/ADMIN | Registrar pago en efectivo o transferencia. Un peluquero necesita el permiso `PAGO_MANUAL_REGISTRAR` y solo puede cobrar citas de su agenda |
 | POST | `/api/pagos/{citaId}/reembolsar` | ADMIN | Reembolsar un pago (Stripe o manual) |
 | GET | `/api/pagos` | ADMIN | Listar pagos (paginado). Opcional `?desde=&hasta=&estado=&metodo=`; el rango incluye los dos extremos y filtra por fecha de pago, con la de creación como respaldo |
 | GET | `/api/pagos/{id}/recibo` | Propio/ADMIN | Descargar el recibo en PDF (`attachment`). **El id es del pago, no de la cita.** 409 si el pago no está `PAGADO` ni `REEMBOLSADO` |

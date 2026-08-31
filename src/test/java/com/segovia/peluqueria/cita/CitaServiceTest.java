@@ -21,6 +21,8 @@ import com.segovia.peluqueria.peluquero.PeluqueroRepository;
 import com.segovia.peluqueria.peluquero.PeluqueroService;
 import com.segovia.peluqueria.servicio.Servicio;
 import com.segovia.peluqueria.servicio.ServicioRepository;
+import com.segovia.peluqueria.permiso.Permiso;
+import com.segovia.peluqueria.permiso.PermisoService;
 import com.segovia.peluqueria.usuario.Rol;
 import com.segovia.peluqueria.usuario.Usuario;
 import com.segovia.peluqueria.usuario.UsuarioRepository;
@@ -60,6 +62,7 @@ class CitaServiceTest {
     private PagoRepository pagoRepository;
     private DiaBloqueadoRepository diaBloqueadoRepository;
     private ApplicationEventPublisher eventPublisher;
+    private PermisoService permisoService;
     private CitaService citaService;
 
     private final Pageable pageable = PageRequest.of(0, 20);
@@ -91,7 +94,11 @@ class CitaServiceTest {
         // CalendarioService real (no mock) sobre el repo mockeado: la regla del dia de la
         // semana se calcula de verdad y solo hay que stubbear los bloqueos puntuales.
         CalendarioService calendario = new CalendarioService(diaBloqueadoRepository, citaRepository, horario, clock);
-        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository, peluqueroRepository, peluqueroService, pagoRepository, horario, calendario, eventPublisher, clock);
+        permisoService = mock(PermisoService.class);
+        // Por defecto los permisos configurables estan concedidos: aqui se prueban las
+        // reglas de la cita, no la matriz. Los tests del permiso lo stubbean al reves.
+        when(permisoService.tienePermiso(any(), any())).thenReturn(true);
+        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository, peluqueroRepository, peluqueroService, pagoRepository, horario, calendario, eventPublisher, clock, permisoService);
 
         // Por defecto, el usuario autenticado es un ADMIN (acceso total).
         Usuario admin = new Usuario();
@@ -241,7 +248,7 @@ class CitaServiceTest {
         HorarioProperties horario = new HorarioProperties();
         CalendarioService calendario = new CalendarioService(diaBloqueadoRepository, citaRepository, horario, relojMadrid);
         citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository,
-                peluqueroRepository, peluqueroService, pagoRepository, horario, calendario, eventPublisher, relojMadrid);
+                peluqueroRepository, peluqueroService, pagoRepository, horario, calendario, eventPublisher, relojMadrid, permisoService);
 
         CitaRequestDTO request = crearRequestValido();
         request.setFechaHora(LocalDateTime.of(2026, 7, 20, 14, 0));
@@ -978,6 +985,57 @@ class CitaServiceTest {
         dto.setObservaciones(observaciones);
         dto.setClienteContactado(contactado);
         return dto;
+    }
+
+    // ---------- el permiso CITA_REPROGRAMAR ----------
+
+    @Test
+    void actualizarCita_peluqueroSinElPermiso_noPuedeCambiarLaFecha() {
+        Peluquero ficha = crearPeluqueroActivo();
+        autenticarPeluquero(ficha);
+        citaPasadaConPeluquero(ficha);
+        when(permisoService.tienePermiso(Rol.PELUQUERO, Permiso.CITA_REPROGRAMAR)).thenReturn(false);
+
+        CitaUpdateDTO request = new CitaUpdateDTO();
+        request.setFechaHora(LocalDateTime.now().plusDays(2).withHour(11).withMinute(0));
+
+        AccessDeniedException ex = assertThrows(AccessDeniedException.class,
+                () -> citaService.actualizarCita(1, request, EMAIL_PELUQUERO));
+        assertTrue(ex.getMessage().contains("no esta habilitado"));
+        verify(citaRepository, never()).save(any(Cita.class));
+    }
+
+    @Test
+    void actualizarCita_peluqueroConElPermiso_puedeCambiarLaFecha() {
+        Peluquero ficha = crearPeluqueroActivo();
+        autenticarPeluquero(ficha);
+        Cita cita = citaPasadaConPeluquero(ficha);
+        when(permisoService.tienePermiso(Rol.PELUQUERO, Permiso.CITA_REPROGRAMAR)).thenReturn(true);
+
+        LocalDateTime nueva = LocalDateTime.now().plusDays(2).withHour(11).withMinute(0).withSecond(0).withNano(0);
+        CitaUpdateDTO request = new CitaUpdateDTO();
+        request.setFechaHora(nueva);
+
+        citaService.actualizarCita(1, request, EMAIL_PELUQUERO);
+
+        assertEquals(nueva, cita.getFechaHora());
+    }
+
+    @Test
+    void actualizarCita_elPermisoNoAfectaAlClienteQueMueveLaSuya() {
+        // El permiso estrecha lo del PELUQUERO y nada mas: un cliente sigue moviendo su
+        // cita y un ADMIN sigue moviendo la que sea, con la matriz entera apagada.
+        Peluquero ficha = crearPeluqueroActivo();
+        Cita cita = citaPasadaConPeluquero(ficha);
+        when(permisoService.tienePermiso(any(), any())).thenReturn(false);
+
+        LocalDateTime nueva = LocalDateTime.now().plusDays(2).withHour(12).withMinute(0).withSecond(0).withNano(0);
+        CitaUpdateDTO request = new CitaUpdateDTO();
+        request.setFechaHora(nueva);
+
+        citaService.actualizarCita(1, request, EMAIL_ADMIN);
+
+        assertEquals(nueva, cita.getFechaHora());
     }
 
     @Test
