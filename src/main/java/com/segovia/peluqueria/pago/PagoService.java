@@ -122,7 +122,7 @@ public class PagoService {
             pago.setFechaCreacion(LocalDateTime.now());
         }
 
-        BigDecimal monto = cita.getServicio().getPrecio();
+        BigDecimal monto = montoDe(cita);
         IntentPasarela intent = paymentGateway.crearIntent(
                 monto,
                 "Pago cita " + cita.getServicio().getNombre() + " - " + cita.getUsuario().getNombre(),
@@ -230,7 +230,7 @@ public class PagoService {
             pago.setFechaCreacion(LocalDateTime.now());
         }
 
-        pago.setMonto(cita.getServicio().getPrecio());
+        pago.setMonto(montoDe(cita));
         pago.setMetodoPago(metodoPago);
         marcarPagadoYConfirmarCita(pago);
 
@@ -408,6 +408,22 @@ public class PagoService {
         response.setPaymentIntentId(intent.id());
         response.setPagoId(pago.getIdPago());
         return response;
+    }
+
+    /**
+     * Lo que se cobra por una cita. Si ya esta cerrada manda el {@code precioAplicado} que
+     * congelo el cierre, y solo si no lo tiene se lee la tarifa vigente del servicio.
+     *
+     * <p>El orden importa y es el mismo COALESCE que usa la produccion. Leer siempre el
+     * precio del servicio dejaba una grieta: subir una tarifa entre el cierre de una cita y
+     * su cobro hacia que se cobrase una cifra y se contabilizase otra, porque la produccion
+     * cuenta el congelado. Congelar los importes al cerrar no sirve de nada si la caja no
+     * respeta lo congelado.
+     */
+    private BigDecimal montoDe(Cita cita) {
+        return cita.getPrecioAplicado() != null
+                ? cita.getPrecioAplicado()
+                : cita.getServicio().getPrecio();
     }
 
     private Cita obtenerCitaPorId(Integer id) {

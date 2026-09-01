@@ -524,6 +524,52 @@ class PagoServiceTest {
         verify(citaRepository, never()).save(any(Cita.class));
     }
 
+    @Test
+    void crearPaymentIntent_citaCerrada_cobraElPrecioCongelado() {
+        Cita cita = crearCitaCompletada();
+        cita.getServicio().setPrecio(new BigDecimal("20.00"));
+        when(usuarioRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cita.getUsuario()));
+        when(citaRepository.findById(1)).thenReturn(Optional.of(cita));
+        when(pagoRepository.findByCitaIdCita(1)).thenReturn(Optional.empty());
+        when(paymentGateway.crearIntent(any(), any(), any()))
+                .thenReturn(new IntentPasarela(INTENT_ID, "secret_abc", "requires_payment_method"));
+        when(pagoRepository.save(any(Pago.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        pagoService.crearPaymentIntent(1, EMAIL_CLIENTE);
+
+        // Un cliente que paga tarde una cita ya cerrada paga lo congelado, igual que en caja.
+        verify(paymentGateway).crearIntent(eq(new BigDecimal("15.00")), any(), eq(1));
+    }
+
+    @Test
+    void registrarPagoManual_citaCerrada_cobraElPrecioCongeladoYNoLaTarifaNueva() {
+        Cita cita = crearCitaCompletada();
+        // La tarifa sube despues del cierre. Lo que se cobra tiene que seguir siendo lo que
+        // la produccion contabiliza, o la caja y la nomina dejan de cuadrar.
+        cita.getServicio().setPrecio(new BigDecimal("20.00"));
+        when(citaRepository.findById(1)).thenReturn(Optional.of(cita));
+        when(pagoRepository.findByCitaIdCita(1)).thenReturn(Optional.empty());
+        when(pagoRepository.save(any(Pago.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        PagoResponseDTO resultado = pagoService.registrarPagoManual(1, MetodoPago.EFECTIVO, EMAIL_ADMIN);
+
+        assertEquals(new BigDecimal("15.00"), resultado.getMonto());
+    }
+
+    @Test
+    void registrarPagoManual_citaSinCerrar_cobraLaTarifaVigente() {
+        Cita cita = crearCitaPendiente();
+        cita.getServicio().setPrecio(new BigDecimal("20.00"));
+        when(citaRepository.findById(1)).thenReturn(Optional.of(cita));
+        when(pagoRepository.findByCitaIdCita(1)).thenReturn(Optional.empty());
+        when(pagoRepository.save(any(Pago.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // Sin cierre no hay nada congelado: manda la tarifa del servicio.
+        PagoResponseDTO resultado = pagoService.registrarPagoManual(1, MetodoPago.EFECTIVO, EMAIL_ADMIN);
+
+        assertEquals(new BigDecimal("20.00"), resultado.getMonto());
+    }
+
     /** Cita ya cerrada como realizada: en el pasado y con el importe congelado. */
     private Cita crearCitaCompletada() {
         Cita cita = crearCitaPendiente();

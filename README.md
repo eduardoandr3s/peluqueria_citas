@@ -71,7 +71,7 @@ Backend for a complete appointment booking and management system for a hair salo
 * **OpenAPI / Swagger UI documentation:** auto-generated with springdoc-openapi, available at `/swagger-ui.html` and `/v3/api-docs`.
 * **Configuration profiles:** separate `dev` and `prod` environments. Schema is managed with **Flyway migrations** (`src/main/resources/db/migration/`). Under the `prod` profile the app **refuses to start** without storage credentials rather than falling back to local disk: on an ephemeral container that failure is silent — uploads succeed and vanish on the next deploy.
 * **Observability (Actuator + Prometheus + Grafana):** `/actuator/prometheus` publishes JVM, HTTP, connection-pool and **business** metrics: appointments by state and service, payments, sign-ups, reminders, password-reset attempts and the assistant's token usage. The business counters are fed by the **domain events that already existed for the emails**, so no service was modified to measure it — and they count in `AFTER_COMMIT`, because an appointment whose insert rolled back is not an appointment. Three decisions are the design: only `health` and `prometheus` are exposed and Spring Security `denyAll`s everything else, since `env`/`beans`/`configprops` would dump the whole configuration with the Stripe and Gemini keys in it; the metrics endpoint is guarded by a **token in a header** rather than a JWT, because a scraper that runs every 30 seconds cannot renew one that expires; and the **mail health indicator is off**, because Actuator enables it just for having the mail starter and an SMTP hiccup would put the global health in `DOWN` — Render reads that endpoint, so a mail problem would have it restart a backend whose appointments and payments work perfectly.
-* **Test suite (413 tests):** 358 unit tests covering the business logic without Spring context or database, plus 55 integration tests with **Testcontainers** (real PostgreSQL in Docker) covering authentication, ownership rules, statistics, payments, sales and commissions, role-based appointment closing and the full Stripe webhook flow with real signature verification.
+* **Test suite (416 tests):** 361 unit tests covering the business logic without Spring context or database, plus 55 integration tests with **Testcontainers** (real PostgreSQL in Docker) covering authentication, ownership rules, statistics, payments, sales and commissions, role-based appointment closing and the full Stripe webhook flow with real signature verification.
 
 ## Project Structure
 
@@ -98,9 +98,9 @@ Each business module follows the same layout: JPA entity, controller, service, r
 
 ## Tests
 
-**413 tests** run in CI on every push (GitHub Actions).
+**416 tests** run in CI on every push (GitHub Actions).
 
-### Unit tests (358)
+### Unit tests (361)
 
 They cover all business logic without Spring context or database (a few seconds):
 
