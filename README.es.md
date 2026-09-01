@@ -71,7 +71,7 @@ Backend de un sistema integral de gestión de citas para una peluquería. Es una
 * **Documentación OpenAPI / Swagger UI:** generada automáticamente con springdoc-openapi, disponible en `/swagger-ui.html` y `/v3/api-docs`.
 * **Perfiles de configuración:** entornos `dev` y `prod` separados. El esquema se gestiona con **migraciones Flyway** (`src/main/resources/db/migration/`). Con el perfil `prod` la aplicación **se niega a arrancar** sin credenciales de almacén en vez de caer al disco local: en un contenedor efímero ese fallo es silencioso —las subidas funcionan y desaparecen en el siguiente despliegue—.
 * **Observabilidad (Actuator + Prometheus + Grafana):** `/actuator/prometheus` publica métricas de JVM, HTTP, pool de conexiones y **de negocio**: citas por estado y por servicio, pagos, altas, recordatorios, intentos de recuperación de contraseña y consumo de tokens del asistente. Los contadores de negocio se alimentan de los **eventos de dominio que ya existían para los correos**, así que no se modificó ningún service para medir, y cuentan en `AFTER_COMMIT`, porque una cita cuyo insert hizo rollback no es una cita. Tres decisiones son el diseño: solo se exponen `health` y `prometheus` y Spring Security cierra el resto con `denyAll`, porque `env`/`beans`/`configprops` volcarían la configuración entera con las claves de Stripe y de Gemini dentro; el endpoint de métricas se protege con un **token en cabecera** y no con un JWT, porque un scraper que corre cada 30 segundos no puede renovar uno que caduca; y el **indicador de correo no cuenta para el health**, porque Actuator lo activa solo por tener el starter de mail y un hipo del SMTP pondría el health global en `DOWN` — Render lee ese endpoint, así que un problema de correo reiniciaría en bucle un backend cuyas citas y pagos funcionan perfectamente.
-* **Suite de tests (411 tests):** 356 tests unitarios que cubren la lógica de negocio sin Spring context ni base de datos, más 55 tests de integración con **Testcontainers** (PostgreSQL real en Docker) que cubren autenticación, reglas de ownership, estadísticas, pagos, producción y comisiones, el cierre de citas por rol y el flujo completo del webhook de Stripe con verificación de firma real.
+* **Suite de tests (413 tests):** 358 tests unitarios que cubren la lógica de negocio sin Spring context ni base de datos, más 55 tests de integración con **Testcontainers** (PostgreSQL real en Docker) que cubren autenticación, reglas de ownership, estadísticas, pagos, producción y comisiones, el cierre de citas por rol y el flujo completo del webhook de Stripe con verificación de firma real.
 
 ## Estructura del proyecto
 
@@ -98,9 +98,9 @@ Todos los módulos de negocio siguen el mismo esquema: entidad JPA, controller, 
 
 ## Tests
 
-**411 tests** se ejecutan en CI en cada push (GitHub Actions).
+**413 tests** se ejecutan en CI en cada push (GitHub Actions).
 
-### Tests unitarios (356)
+### Tests unitarios (358)
 
 Cubren toda la lógica de negocio sin Spring context ni base de datos (pocos segundos):
 

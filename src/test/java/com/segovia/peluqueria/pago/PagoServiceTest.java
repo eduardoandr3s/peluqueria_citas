@@ -489,6 +489,52 @@ class PagoServiceTest {
         verify(permisoService, never()).tienePermiso(any(), any());
     }
 
+    @Test
+    void registrarPagoManual_citaYaCerrada_noDeshaceElCierre() {
+        Cita cita = crearCitaCompletada();
+        when(citaRepository.findById(1)).thenReturn(Optional.of(cita));
+        when(pagoRepository.findByCitaIdCita(1)).thenReturn(Optional.empty());
+        when(pagoRepository.save(any(Pago.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        PagoResponseDTO resultado = pagoService.registrarPagoManual(1, MetodoPago.EFECTIVO, EMAIL_ADMIN);
+
+        // El orden natural del peluquero es cerrar y despues cobrar en efectivo. Si el cobro
+        // devolviera la cita a CONFIRMADA, la produccion (que exige COMPLETADA y PAGADO a la
+        // vez) no la contaria nunca y el cierre se perderia sin aviso.
+        assertEquals(EstadoPago.PAGADO, resultado.getEstadoPago());
+        assertEquals(EstadoCita.COMPLETADA, cita.getEstado());
+        verify(citaRepository, never()).save(any(Cita.class));
+        verify(eventPublisher).publishEvent(any(PagoConfirmadoEvent.class));
+    }
+
+    @Test
+    void procesarWebhook_pagoCompletado_noDeshaceUnCierre() {
+        Cita cita = crearCitaCompletada();
+        Pago pago = crearPagoPendiente(cita);
+        when(paymentGateway.validarWebhook(PAYLOAD, FIRMA))
+                .thenReturn(evento("payment_intent.succeeded", INTENT_ID));
+        when(stripeEventoRepository.existsById(EVENTO_ID)).thenReturn(false);
+        when(pagoRepository.findByReferenciaExterna(INTENT_ID)).thenReturn(Optional.of(pago));
+
+        pagoService.procesarWebhook(PAYLOAD, FIRMA);
+
+        // Mismo motivo por la via online: un pago que entra tarde no reabre una cita cerrada.
+        assertEquals(EstadoPago.PAGADO, pago.getEstadoPago());
+        assertEquals(EstadoCita.COMPLETADA, cita.getEstado());
+        verify(citaRepository, never()).save(any(Cita.class));
+    }
+
+    /** Cita ya cerrada como realizada: en el pasado y con el importe congelado. */
+    private Cita crearCitaCompletada() {
+        Cita cita = crearCitaPendiente();
+        cita.setFechaHora(LocalDateTime.now().minusDays(1));
+        cita.setEstado(EstadoCita.COMPLETADA);
+        cita.setPrecioAplicado(new BigDecimal("15.00"));
+        cita.setComisionPorcentajeAplicado(new BigDecimal("30.00"));
+        cita.setFechaCierre(LocalDateTime.now().minusHours(1));
+        return cita;
+    }
+
     /** Cuenta con rol PELUQUERO vinculada a la ficha 5, ya registrada en los mocks. */
     private Peluquero crearPeluqueroConFicha() {
         Usuario cuenta = new Usuario();

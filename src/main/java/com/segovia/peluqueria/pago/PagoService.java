@@ -383,9 +383,17 @@ public class PagoService {
         pago.setFechaPago(LocalDateTime.now());
         pagoRepository.save(pago);
 
+        // Confirmar es un paso de la RESERVA, no del cobro: solo sube de PENDIENTE a
+        // CONFIRMADA. Una cita ya cerrada (COMPLETADA o NO_ASISTIO) no vuelve atras al
+        // cobrarla. Si volviera, el cobro borraria el cierre y esa cita no sumaria jamas en
+        // la produccion, que exige COMPLETADA y PAGADO a la vez; y es justo el orden natural
+        // del circuito que abre PAGO_MANUAL_REGISTRAR: el peluquero hace el trabajo, cierra
+        // la cita y despues cobra en efectivo.
         Cita cita = pago.getCita();
-        cita.setEstado(EstadoCita.CONFIRMADA);
-        citaRepository.save(cita);
+        if (cita.getEstado() == EstadoCita.PENDIENTE) {
+            cita.setEstado(EstadoCita.CONFIRMADA);
+            citaRepository.save(cita);
+        }
 
         eventPublisher.publishEvent(new PagoConfirmadoEvent(
                 cita.getUsuario().getNombre(),
