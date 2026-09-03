@@ -39,6 +39,45 @@ public enum Permiso {
     CITA_REPROGRAMAR(
             "Cambiar la fecha de las citas de su agenda",
             Set.of(Rol.PELUQUERO),
+            false),
+
+    /**
+     * Subir fotos a la galeria de trabajos. Apagado por defecto, como todos: la galeria era
+     * del ADMIN y desplegar esto no cambia quien publica en el escaparate.
+     */
+    GALERIA_SUBIR(
+            "Subir fotos a la galeria de trabajos",
+            Set.of(Rol.PELUQUERO),
+            false),
+
+    /**
+     * Cambiar el titulo o borrar las fotos que subio el mismo. No alcanza a las de otro ni
+     * a las del negocio (las que no tienen dueno), que necesitan
+     * {@link #GALERIA_EDITAR_AJENA}.
+     */
+    GALERIA_EDITAR_PROPIA(
+            "Editar y borrar sus propias fotos de la galeria",
+            Set.of(Rol.PELUQUERO),
+            false),
+
+    /**
+     * Tocar fotos que no son suyas, incluidas las del negocio. Es el que conviene dejar
+     * apagado: fue justo lo que se pidio evitar, que un trabajador quite el trabajo de
+     * otro.
+     */
+    GALERIA_EDITAR_AJENA(
+            "Editar y borrar fotos de la galeria subidas por otros",
+            Set.of(Rol.PELUQUERO),
+            false),
+
+    /**
+     * Cambiar el sitio de una foto en la rejilla. Va aparte de los dos anteriores porque
+     * reordenar no es editar "una" foto: mover la propia renumera las de todos, asi que el
+     * permiso vale para cualquier foto y no depende del dueno.
+     */
+    GALERIA_ORDENAR(
+            "Reordenar la rejilla de la galeria",
+            Set.of(Rol.PELUQUERO),
             false);
 
     private final String descripcion;

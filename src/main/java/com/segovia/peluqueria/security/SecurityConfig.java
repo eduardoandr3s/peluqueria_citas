@@ -63,7 +63,7 @@ public class SecurityConfig {
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/servicios", "/api/servicios/**").permitAll()
                         // La galeria de trabajos es el escaparate: se ve sin cuenta, igual que
-                        // el catalogo. Solo la lectura; subir, ordenar y borrar es de ADMIN.
+                        // el catalogo. Solo la lectura; escribir pide rol y permiso.
                         .requestMatchers(HttpMethod.GET, "/api/galeria", "/api/galeria/**").permitAll()
                         // Almacen local de desarrollo: en produccion las fotos las sirve
                         // Supabase Storage y este handler no se registra (ver AlmacenConfig).
@@ -75,9 +75,13 @@ public class SecurityConfig {
                         // que por el API REST piden login. Va limitado por IP en RateLimitFilter.
                         .requestMatchers(HttpMethod.POST, "/api/asistente").permitAll()
 
-                        .requestMatchers(HttpMethod.POST, "/api/galeria").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.PUT, "/api/galeria/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.DELETE, "/api/galeria/**").hasRole("ADMIN")
+                        // Escribir en la galeria lo abre el rol y lo estrecha el permiso: aqui
+                        // pasan ADMIN y PELUQUERO, y dentro GaleriaService comprueba de quien es
+                        // la foto y que permiso tiene su rol. La ruta no puede decidirlo porque
+                        // depende del dueno de la fila, que no se conoce hasta cargarla.
+                        .requestMatchers(HttpMethod.POST, "/api/galeria").hasAnyRole("PELUQUERO", "ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/galeria/**").hasAnyRole("PELUQUERO", "ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/galeria/**").hasAnyRole("PELUQUERO", "ADMIN")
 
                         .requestMatchers(HttpMethod.POST, "/api/servicios").hasRole("ADMIN")
                         // La regla de POST de arriba es exacta y no cubre las subrutas.

@@ -189,6 +189,10 @@ class PermisoIntegrationTest extends AbstractIntegrationTest {
     private void apagarTodo() {
         apagar("PAGO_MANUAL_REGISTRAR");
         apagar("CITA_REPROGRAMAR");
+        apagar("GALERIA_SUBIR");
+        apagar("GALERIA_EDITAR_PROPIA");
+        apagar("GALERIA_EDITAR_AJENA");
+        apagar("GALERIA_ORDENAR");
     }
 
     private ResponseEntity<List> escribir(String clave, boolean habilitado) {

@@ -1,5 +1,6 @@
 package com.segovia.peluqueria.galeria;
 
+import com.segovia.peluqueria.usuario.Usuario;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -13,6 +14,11 @@ import java.time.LocalDateTime;
  * abrir una foto, y la miniatura, que es lo unico que carga la rejilla. Separarlas
  * no es cosmetico: el limite del plan gratuito de Storage es el trafico, y una
  * rejilla servida con las imagenes grandes lo multiplica por diez.
+ *
+ * <p>El dueno es opcional y sin dueno significa "del negocio": las fotos que ya
+ * existian las subio un administrador antes de que esto se guardara, y solo un
+ * administrador las toca. No se les invento un dueno con un backfill, porque eso
+ * le daria a una persona el derecho a borrar material de la peluqueria.
  *
  * <p>La miniatura es opcional a proposito. Se genera en el cliente (que es donde
  * ya se redimensiona todo lo demas, para no gastar los 0,1 CPU de produccion), asi
@@ -45,4 +51,9 @@ public class GaleriaFoto {
 
     @Column(name = "fecha_subida", nullable = false)
     private LocalDateTime fechaSubida = LocalDateTime.now();
+
+    /** Quien la subio. Null = del negocio, ver la nota de arriba. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "subido_por")
+    private Usuario subidoPor;
 }
