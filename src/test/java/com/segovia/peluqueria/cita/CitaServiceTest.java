@@ -997,7 +997,7 @@ class CitaServiceTest {
         when(permisoService.tienePermiso(Rol.PELUQUERO, Permiso.CITA_REPROGRAMAR)).thenReturn(false);
 
         CitaUpdateDTO request = new CitaUpdateDTO();
-        request.setFechaHora(LocalDateTime.now().plusDays(2).withHour(11).withMinute(0));
+        request.setFechaHora(proximoLunesALas(11, 0));
 
         AccessDeniedException ex = assertThrows(AccessDeniedException.class,
                 () -> citaService.actualizarCita(1, request, EMAIL_PELUQUERO));
@@ -1012,7 +1012,7 @@ class CitaServiceTest {
         Cita cita = citaPasadaConPeluquero(ficha);
         when(permisoService.tienePermiso(Rol.PELUQUERO, Permiso.CITA_REPROGRAMAR)).thenReturn(true);
 
-        LocalDateTime nueva = LocalDateTime.now().plusDays(2).withHour(11).withMinute(0).withSecond(0).withNano(0);
+        LocalDateTime nueva = proximoLunesALas(11, 0);
         CitaUpdateDTO request = new CitaUpdateDTO();
         request.setFechaHora(nueva);
 
@@ -1029,7 +1029,7 @@ class CitaServiceTest {
         Cita cita = citaPasadaConPeluquero(ficha);
         when(permisoService.tienePermiso(any(), any())).thenReturn(false);
 
-        LocalDateTime nueva = LocalDateTime.now().plusDays(2).withHour(12).withMinute(0).withSecond(0).withNano(0);
+        LocalDateTime nueva = proximoLunesALas(12, 0);
         CitaUpdateDTO request = new CitaUpdateDTO();
         request.setFechaHora(nueva);
 
