@@ -105,14 +105,34 @@ public class SecurityConfig {
 
                         .requestMatchers("/api/citas/**").authenticated()
 
+                        // El equipo con su CV es publico, como la galeria: se mira ANTES de
+                        // registrarse, para decidir con quien agendar. Solo publica material
+                        // profesional (ver PeluqueroPublicoDTO), nada de la cuenta. Esta linea
+                        // tiene que ir antes del GET /** de abajo, que pide token; al reves,
+                        // "publicos" se leeria como un id cualquiera y quedaria cerrado.
+                        .requestMatchers(HttpMethod.GET, "/api/peluqueros/publicos").permitAll()
                         // La ficha de gestion y las comisiones van ANTES del GET /** de abajo,
                         // que es de cualquier autenticado: lo que gana un companero no es
                         // asunto de un cliente ni del resto de la plantilla.
                         .requestMatchers(HttpMethod.GET, "/api/peluqueros/gestion").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/peluqueros/*/comisiones").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/peluqueros/*/comisiones").hasRole("ADMIN")
+                        // Su propio CV. El rol deja llegar al servicio y dentro decide el permiso
+                        // PERFIL_CV_EDITAR; el GET no lo pide, porque ver su propia ficha no es
+                        // editarla. Un cliente no tiene ficha, asi que aqui no entra.
+                        .requestMatchers(HttpMethod.GET, "/api/peluqueros/mio").hasAnyRole("PELUQUERO", "ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/peluqueros/mio").hasAnyRole("PELUQUERO", "ADMIN")
+                        // La foto del CV la sube el peluquero de su propia ficha, asi que no puede
+                        // ser de ADMIN. De quien es la ficha no se sabe hasta cargarla, y eso lo
+                        // comprueba PeluqueroCvService. Van antes del PUT y el DELETE /** de
+                        // abajo, que si son de ADMIN, y el POST hay que escribirlo aparte porque
+                        // el POST de mas abajo es exacto y no cubre las subrutas.
+                        .requestMatchers(HttpMethod.POST, "/api/peluqueros/*/foto").hasAnyRole("PELUQUERO", "ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/peluqueros/*/foto").hasAnyRole("PELUQUERO", "ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/peluqueros", "/api/peluqueros/**").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/peluqueros").hasRole("ADMIN")
+                        // Aqui cae PUT /{id}/cv: el CV de un companero es del ADMIN y no lo abre
+                        // ningun permiso.
                         .requestMatchers(HttpMethod.PUT, "/api/peluqueros/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/peluqueros/**").hasRole("ADMIN")
 

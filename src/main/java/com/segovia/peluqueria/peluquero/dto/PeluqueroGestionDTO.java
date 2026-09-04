@@ -19,13 +19,25 @@ public class PeluqueroGestionDTO {
     private Boolean activo;
     private BigDecimal comisionPorcentaje;
 
+    /** Sitio en la pantalla "Equipo". Se cambia por {@code PUT /api/peluqueros/{id}}. */
+    private Integer orden;
+
     private Integer usuarioId;
     private String usuarioNombre;
     private String usuarioEmail;
 
     private List<ComisionServicioDTO> comisionesPorServicio;
 
-    public static PeluqueroGestionDTO desde(Peluquero peluquero, List<ComisionServicioDTO> comisiones) {
+    /**
+     * El CV, para que la pestana del panel lo pinte sin una segunda peticion. Se lee por
+     * aqui y se escribe por {@code PUT /api/peluqueros/{id}/cv}, que reemplaza el bloque
+     * entero: en este DTO un null significa "no lo toques" y con eso no se puede vaciar un
+     * campo de texto.
+     */
+    private PeluqueroCvDTO cv;
+
+    public static PeluqueroGestionDTO desde(Peluquero peluquero, List<ComisionServicioDTO> comisiones,
+                                            String fotoUrl) {
         PeluqueroGestionDTO dto = new PeluqueroGestionDTO();
         dto.setIdPeluquero(peluquero.getIdPeluquero());
         dto.setNombre(peluquero.getNombre());
@@ -37,6 +49,8 @@ public class PeluqueroGestionDTO {
             dto.setUsuarioEmail(peluquero.getUsuario().getEmail());
         }
         dto.setComisionesPorServicio(comisiones);
+        dto.setOrden(peluquero.getOrden());
+        dto.setCv(PeluqueroCvDTO.desde(peluquero, fotoUrl));
         return dto;
     }
 }

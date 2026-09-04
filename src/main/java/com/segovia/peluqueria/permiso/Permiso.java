@@ -78,6 +78,20 @@ public enum Permiso {
     GALERIA_ORDENAR(
             "Reordenar la rejilla de la galeria",
             Set.of(Rol.PELUQUERO),
+            false),
+
+    /**
+     * Rellenar su propio CV publico: presentacion, especialidades, anios de oficio, foto e
+     * Instagram. Alcanza solo a su ficha, nunca a la de otro: el CV de un companero es
+     * cosa del ADMIN y no hay permiso que lo abra.
+     *
+     * <p>Apagado por defecto como todos, aunque sea el mas inocuo de la lista: la regla es
+     * que desplegar un permiso nuevo no cambie lo que puede hacer nadie. Hasta que se
+     * enciende, el CV lo rellena el administrador desde la ficha del peluquero.
+     */
+    PERFIL_CV_EDITAR(
+            "Rellenar su propio CV publico (presentacion, especialidades y foto)",
+            Set.of(Rol.PELUQUERO),
             false);
 
     private final String descripcion;

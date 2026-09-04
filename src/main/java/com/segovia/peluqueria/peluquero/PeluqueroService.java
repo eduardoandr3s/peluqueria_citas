@@ -29,15 +29,19 @@ public class PeluqueroService {
     private final ComisionServicioRepository comisionRepository;
     private final UsuarioRepository usuarioRepository;
     private final ServicioRepository servicioRepository;
+    /** Solo para montar la URL de la foto: el CV entero lo gobierna ese servicio. */
+    private final PeluqueroCvService cvService;
 
     public PeluqueroService(PeluqueroRepository peluqueroRepository,
                             ComisionServicioRepository comisionRepository,
                             UsuarioRepository usuarioRepository,
-                            ServicioRepository servicioRepository) {
+                            ServicioRepository servicioRepository,
+                            PeluqueroCvService cvService) {
         this.peluqueroRepository = peluqueroRepository;
         this.comisionRepository = comisionRepository;
         this.usuarioRepository = usuarioRepository;
         this.servicioRepository = servicioRepository;
+        this.cvService = cvService;
     }
 
     @Transactional(readOnly = true)
@@ -55,7 +59,7 @@ public class PeluqueroService {
     public List<PeluqueroGestionDTO> listarParaGestion() {
         return peluqueroRepository.findAll().stream()
                 .sorted(Comparator.comparing(Peluquero::getIdPeluquero))
-                .map(p -> PeluqueroGestionDTO.desde(p, comisionesDe(p.getIdPeluquero())))
+                .map(p -> PeluqueroGestionDTO.desde(p, comisionesDe(p.getIdPeluquero()), cvService.urlFoto(p)))
                 .toList();
     }
 
@@ -83,13 +87,17 @@ public class PeluqueroService {
         if (request.getComisionPorcentaje() != null) {
             peluquero.setComisionPorcentaje(request.getComisionPorcentaje());
         }
+        if (request.getOrden() != null) {
+            peluquero.setOrden(request.getOrden());
+        }
         if (Boolean.TRUE.equals(request.getDesvincularUsuario())) {
             peluquero.setUsuario(null);
         } else if (request.getUsuarioId() != null) {
             peluquero.setUsuario(validarCuentaVinculable(request.getUsuarioId(), id));
         }
         Peluquero guardado = peluqueroRepository.save(peluquero);
-        return PeluqueroGestionDTO.desde(guardado, comisionesDe(guardado.getIdPeluquero()));
+        return PeluqueroGestionDTO.desde(guardado, comisionesDe(guardado.getIdPeluquero()),
+                cvService.urlFoto(guardado));
     }
 
     /**

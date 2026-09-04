@@ -28,6 +28,7 @@ class PeluqueroServiceTest {
     private ComisionServicioRepository comisionRepository;
     private UsuarioRepository usuarioRepository;
     private ServicioRepository servicioRepository;
+    private PeluqueroCvService cvService;
     private PeluqueroService peluqueroService;
 
     @BeforeEach
@@ -36,10 +37,13 @@ class PeluqueroServiceTest {
         comisionRepository = mock(ComisionServicioRepository.class);
         usuarioRepository = mock(UsuarioRepository.class);
         servicioRepository = mock(ServicioRepository.class);
+        // Solo se le pide la URL de la foto, y en estos tests ninguna ficha tiene: el CV se
+        // prueba en PeluqueroCvServiceTest.
+        cvService = mock(PeluqueroCvService.class);
         // Sin excepciones de comision salvo donde el test las ponga.
         when(comisionRepository.findByPeluqueroIdPeluquero(anyInt())).thenReturn(List.of());
         peluqueroService = new PeluqueroService(peluqueroRepository, comisionRepository,
-                usuarioRepository, servicioRepository);
+                usuarioRepository, servicioRepository, cvService);
     }
 
     private Peluquero crearPeluqueroBase() {

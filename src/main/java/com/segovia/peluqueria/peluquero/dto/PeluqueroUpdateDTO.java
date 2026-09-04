@@ -1,6 +1,7 @@
 package com.segovia.peluqueria.peluquero.dto;
 
 import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.DecimalMin;
 import lombok.Data;
 
@@ -25,4 +26,12 @@ public class PeluqueroUpdateDTO {
     private Integer usuarioId;
 
     private Boolean desvincularUsuario;
+
+    /**
+     * Sitio de este peluquero en la pantalla "Equipo" que ve el cliente. Va aqui y no en el
+     * CV porque no es suyo: colocarse primero desplaza a los companeros, asi que lo decide
+     * el ADMIN, igual que reordenar la galeria no depende del dueno de la foto.
+     */
+    @Min(value = 0, message = "El orden no puede ser negativo")
+    private Integer orden;
 }
