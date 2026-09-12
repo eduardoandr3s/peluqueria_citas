@@ -3,6 +3,8 @@ package com.segovia.peluqueria.peluquero;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.peluquero.dto.ComisionServicioDTO;
 import com.segovia.peluqueria.peluquero.dto.ComisionesUpdateDTO;
+import com.segovia.peluqueria.modulo.Modulo;
+import com.segovia.peluqueria.modulo.ModuloService;
 import com.segovia.peluqueria.peluquero.dto.PeluqueroGestionDTO;
 import com.segovia.peluqueria.peluquero.dto.PeluqueroRequestDTO;
 import com.segovia.peluqueria.peluquero.dto.PeluqueroResponseDTO;
@@ -31,17 +33,20 @@ public class PeluqueroService {
     private final ServicioRepository servicioRepository;
     /** Solo para montar la URL de la foto: el CV entero lo gobierna ese servicio. */
     private final PeluqueroCvService cvService;
+    private final ModuloService moduloService;
 
     public PeluqueroService(PeluqueroRepository peluqueroRepository,
                             ComisionServicioRepository comisionRepository,
                             UsuarioRepository usuarioRepository,
                             ServicioRepository servicioRepository,
-                            PeluqueroCvService cvService) {
+                            PeluqueroCvService cvService,
+                            ModuloService moduloService) {
         this.peluqueroRepository = peluqueroRepository;
         this.comisionRepository = comisionRepository;
         this.usuarioRepository = usuarioRepository;
         this.servicioRepository = servicioRepository;
         this.cvService = cvService;
+        this.moduloService = moduloService;
     }
 
     @Transactional(readOnly = true)
@@ -59,7 +64,8 @@ public class PeluqueroService {
     public List<PeluqueroGestionDTO> listarParaGestion() {
         return peluqueroRepository.findAll().stream()
                 .sorted(Comparator.comparing(Peluquero::getIdPeluquero))
-                .map(p -> PeluqueroGestionDTO.desde(p, comisionesDe(p.getIdPeluquero()), cvService.urlFoto(p)))
+                .map(p -> PeluqueroGestionDTO.desde(
+                        p, comisionesGuardadas(p.getIdPeluquero()), cvService.urlFoto(p), conComision()))
                 .toList();
     }
 
@@ -85,6 +91,9 @@ public class PeluqueroService {
             peluquero.setActivo(request.getActivo());
         }
         if (request.getComisionPorcentaje() != null) {
+            // Solo si de verdad intentan tocarla: la ficha se sigue editando con el modulo
+            // apagado, lo que no existe ahi es el dinero.
+            moduloService.exigir(Modulo.COMISIONES);
             peluquero.setComisionPorcentaje(request.getComisionPorcentaje());
         }
         if (request.getOrden() != null) {
@@ -96,8 +105,8 @@ public class PeluqueroService {
             peluquero.setUsuario(validarCuentaVinculable(request.getUsuarioId(), id));
         }
         Peluquero guardado = peluqueroRepository.save(peluquero);
-        return PeluqueroGestionDTO.desde(guardado, comisionesDe(guardado.getIdPeluquero()),
-                cvService.urlFoto(guardado));
+        return PeluqueroGestionDTO.desde(guardado, comisionesGuardadas(guardado.getIdPeluquero()),
+                cvService.urlFoto(guardado), conComision());
     }
 
     /**
@@ -107,6 +116,7 @@ public class PeluqueroService {
      */
     @Transactional
     public List<ComisionServicioDTO> reemplazarComisiones(Integer id, ComisionesUpdateDTO request) {
+        moduloService.exigir(Modulo.COMISIONES);
         Peluquero peluquero = obtenerEntidadPorId(id);
         comisionRepository.deleteAll(comisionRepository.findByPeluqueroIdPeluquero(id));
 
@@ -125,11 +135,26 @@ public class PeluqueroService {
             comision.setPorcentaje(fila.getPorcentaje());
             comisionRepository.save(comision);
         }
-        return comisionesDe(id);
+        return comisionesGuardadas(id);
     }
 
+    /**
+     * Las excepciones por servicio de un peluquero. Es el endpoint, asi que exige el modulo:
+     * el que va anidado en la ficha no pasa por aqui, porque esa pantalla se sigue abriendo
+     * con las comisiones apagadas.
+     */
     @Transactional(readOnly = true)
     public List<ComisionServicioDTO> comisionesDe(Integer idPeluquero) {
+        moduloService.exigir(Modulo.COMISIONES);
+        return comisionesGuardadas(idPeluquero);
+    }
+
+    /** Si el negocio comisiona. Apagado, la ficha sale sin porcentaje y sin excepciones. */
+    private boolean conComision() {
+        return moduloService.estaActivo(Modulo.COMISIONES);
+    }
+
+    private List<ComisionServicioDTO> comisionesGuardadas(Integer idPeluquero) {
         return comisionRepository.findByPeluqueroIdPeluquero(idPeluquero).stream()
                 .sorted(Comparator.comparing(c -> c.getServicio().getIdServicio()))
                 .map(ComisionServicioDTO::desde)

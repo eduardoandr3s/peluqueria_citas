@@ -8,6 +8,8 @@ import com.segovia.peluqueria.cita.dto.CitaResponseDTO;
 import com.segovia.peluqueria.cita.dto.CitaUpdateDTO;
 import com.segovia.peluqueria.exception.ConflictoHorarioException;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
+import com.segovia.peluqueria.modulo.Modulo;
+import com.segovia.peluqueria.modulo.ModuloService;
 import com.segovia.peluqueria.permiso.Permiso;
 import com.segovia.peluqueria.permiso.PermisoService;
 import com.segovia.peluqueria.notificacion.evento.CitaAgendadaEvent;
@@ -66,6 +68,7 @@ public class CitaService {
     private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
     private final PermisoService permisoService;
+    private final ModuloService moduloService;
 
     public CitaService(CitaRepository citaRepository,
                        UsuarioRepository usuarioRepository,
@@ -77,7 +80,8 @@ public class CitaService {
                        CalendarioService calendario,
                        ApplicationEventPublisher eventPublisher,
                        Clock clock,
-                       PermisoService permisoService) {
+                       PermisoService permisoService,
+                       ModuloService moduloService) {
         this.citaRepository = citaRepository;
         this.usuarioRepository = usuarioRepository;
         this.servicioRepository = servicioRepository;
@@ -89,6 +93,7 @@ public class CitaService {
         this.eventPublisher = eventPublisher;
         this.clock = clock;
         this.permisoService = permisoService;
+        this.moduloService = moduloService;
     }
 
     @Transactional(readOnly = true)
@@ -407,11 +412,26 @@ public class CitaService {
     private void congelarImportes(Cita cita) {
         cita.setPrecioAplicado(cita.getServicio().getPrecio());
         Peluquero peluquero = cita.getPeluquero();
-        cita.setComisionPorcentajeAplicado(peluquero == null
-                // Cita sin peluquero asignado (las hay, la FK es nullable desde la V7): hay
-                // venta, pero no hay a quien comisionar.
+        cita.setComisionPorcentajeAplicado(comisionQueSeCongela(peluquero, cita.getServicio()));
+    }
+
+    /**
+     * El porcentaje que se queda grabado en la cita al cerrarla.
+     *
+     * <p>Con el modulo de comisiones apagado se guarda <b>null, no cero</b>, y la diferencia
+     * es la que se lee luego en la nomina: null es "aqui no se comisiona" y cero es "trabaja
+     * al 0 %". Lo ya congelado en citas viejas no se toca: apagar un modulo no reescribe el
+     * historico.
+     */
+    private BigDecimal comisionQueSeCongela(Peluquero peluquero, Servicio servicio) {
+        if (!moduloService.estaActivo(Modulo.COMISIONES)) {
+            return null;
+        }
+        // Cita sin peluquero asignado (las hay, la FK es nullable desde la V7): hay venta,
+        // pero no hay a quien comisionar.
+        return peluquero == null
                 ? BigDecimal.ZERO
-                : peluqueroService.porcentajeAplicable(peluquero.getIdPeluquero(), cita.getServicio().getIdServicio()));
+                : peluqueroService.porcentajeAplicable(peluquero.getIdPeluquero(), servicio.getIdServicio());
     }
 
     private String normalizar(String texto) {

@@ -2,6 +2,7 @@ package com.segovia.peluqueria.exception;
 
 import com.segovia.peluqueria.almacen.AlmacenException;
 import com.segovia.peluqueria.asistente.AsistenteException;
+import com.segovia.peluqueria.modulo.ModuloDesactivadoException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -91,6 +92,21 @@ public class GlobalExceptionHandler {
         log.warn("Estado no valido para la operacion: {}", ex.getMessage());
         Map<String, String> error = new HashMap<>();
         error.put("error", ex.getMessage());
+        return error;
+    }
+
+    // Se ha pedido algo que este negocio no hace: su modulo esta apagado. 409 y no 403,
+    // porque 403 es "tu no puedes" -lo que dicen el rol y el permiso- y aqui no puede nadie,
+    // ni siquiera un ADMIN. Tampoco 404: la ruta existe, y un 404 haria pensar que el
+    // backend desplegado es viejo. La clave del modulo viaja aparte para que el frontend
+    // pueda decir cual es en vez de soltar el mensaje pelado.
+    @ResponseStatus(HttpStatus.CONFLICT)
+    @ExceptionHandler(ModuloDesactivadoException.class)
+    public Map<String, String> manejarModuloDesactivado(ModuloDesactivadoException ex) {
+        log.warn("Operacion de un modulo desactivado: {}", ex.getMessage());
+        Map<String, String> error = new HashMap<>();
+        error.put("error", ex.getMessage());
+        error.put("modulo", ex.getModulo().name());
         return error;
     }
 

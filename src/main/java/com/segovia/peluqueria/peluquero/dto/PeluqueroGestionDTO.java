@@ -17,6 +17,12 @@ public class PeluqueroGestionDTO {
     private Integer idPeluquero;
     private String nombre;
     private Boolean activo;
+
+    /**
+     * Porcentaje por defecto, o <b>null si el modulo de comisiones esta apagado</b>: ahi la
+     * ficha no habla de dinero. El valor sigue guardado en la base de datos y vuelve tal
+     * cual si el modulo se enciende otra vez.
+     */
     private BigDecimal comisionPorcentaje;
 
     /** Sitio en la pantalla "Equipo". Se cambia por {@code PUT /api/peluqueros/{id}}. */
@@ -36,19 +42,24 @@ public class PeluqueroGestionDTO {
      */
     private PeluqueroCvDTO cv;
 
+    /**
+     * @param conComision si el modulo de comisiones esta encendido. Apagado, la ficha sale
+     *                    sin porcentaje y sin excepciones por servicio: no es que sean cero,
+     *                    es que aqui no se comisiona.
+     */
     public static PeluqueroGestionDTO desde(Peluquero peluquero, List<ComisionServicioDTO> comisiones,
-                                            String fotoUrl) {
+                                            String fotoUrl, boolean conComision) {
         PeluqueroGestionDTO dto = new PeluqueroGestionDTO();
         dto.setIdPeluquero(peluquero.getIdPeluquero());
         dto.setNombre(peluquero.getNombre());
         dto.setActivo(peluquero.getActivo());
-        dto.setComisionPorcentaje(peluquero.getComisionPorcentaje());
+        dto.setComisionPorcentaje(conComision ? peluquero.getComisionPorcentaje() : null);
         if (peluquero.getUsuario() != null) {
             dto.setUsuarioId(peluquero.getUsuario().getIdUsuario());
             dto.setUsuarioNombre(peluquero.getUsuario().getNombre());
             dto.setUsuarioEmail(peluquero.getUsuario().getEmail());
         }
-        dto.setComisionesPorServicio(comisiones);
+        dto.setComisionesPorServicio(conComision ? comisiones : List.of());
         dto.setOrden(peluquero.getOrden());
         dto.setCv(PeluqueroCvDTO.desde(peluquero, fotoUrl));
         return dto;

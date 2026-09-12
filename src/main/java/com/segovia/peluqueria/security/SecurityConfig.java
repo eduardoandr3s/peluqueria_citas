@@ -150,6 +150,14 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/dias-bloqueados").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/dias-bloqueados/**").hasRole("ADMIN")
 
+                        // Que modulos tiene encendidos el negocio es PUBLICO: la app tiene
+                        // pantallas que se ven sin cuenta y necesita saber que pintar antes del
+                        // login. Solo dice que hace la peluqueria, nada de quien puede hacerlo.
+                        // Va ANTES de las dos reglas de ADMIN, que si no se lo tragarian.
+                        .requestMatchers(HttpMethod.GET, "/api/modulos/activos").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/modulos").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/modulos").hasRole("ADMIN")
+
                         // La matriz de permisos la configura el ADMIN. /mios es de cualquier
                         // autenticado: son sus propios permisos, y el frontend los pide al entrar
                         // para no pintar botones que acabarian en un 403. Va ANTES de las dos

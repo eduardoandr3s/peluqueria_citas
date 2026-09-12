@@ -9,6 +9,8 @@ import com.segovia.peluqueria.notificacion.evento.PagoConfirmadoEvent;
 import com.segovia.peluqueria.peluquero.Peluquero;
 import com.segovia.peluqueria.peluquero.PeluqueroRepository;
 import com.segovia.peluqueria.permiso.Permiso;
+import com.segovia.peluqueria.modulo.Modulo;
+import com.segovia.peluqueria.modulo.ModuloService;
 import com.segovia.peluqueria.permiso.PermisoService;
 import com.segovia.peluqueria.pago.PaymentGateway.EventoPasarela;
 import com.segovia.peluqueria.pago.PaymentGateway.IntentPasarela;
@@ -68,6 +70,7 @@ public class PagoService {
     private final ReciboPdfGenerador reciboPdfGenerador;
     private final PeluqueroRepository peluqueroRepository;
     private final PermisoService permisoService;
+    private final ModuloService moduloService;
 
     public PagoService(PagoRepository pagoRepository,
                        CitaRepository citaRepository,
@@ -77,7 +80,8 @@ public class PagoService {
                        ApplicationEventPublisher eventPublisher,
                        ReciboPdfGenerador reciboPdfGenerador,
                        PeluqueroRepository peluqueroRepository,
-                       PermisoService permisoService) {
+                       PermisoService permisoService,
+                       ModuloService moduloService) {
         this.pagoRepository = pagoRepository;
         this.citaRepository = citaRepository;
         this.usuarioRepository = usuarioRepository;
@@ -87,10 +91,17 @@ public class PagoService {
         this.reciboPdfGenerador = reciboPdfGenerador;
         this.peluqueroRepository = peluqueroRepository;
         this.permisoService = permisoService;
+        this.moduloService = moduloService;
     }
 
     @Transactional
     public PaymentIntentResponseDTO crearPaymentIntent(Integer citaId, String emailAutenticado) {
+        // Lo primero, antes que el rol y antes de tocar nada: si la peluqueria no cobra con
+        // tarjeta, aqui eso no existe para nadie. Cancelar o cobrar un intent ya creado sigue
+        // funcionando a proposito (ver el webhook y reembolsar): apagar un modulo no puede
+        // dejar dinero en el aire en Stripe.
+        moduloService.exigir(Modulo.PAGO_TARJETA);
+
         Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
         Cita cita = obtenerCitaPorId(citaId);
         verificarAcceso(cita, actual);
@@ -199,6 +210,10 @@ public class PagoService {
 
     @Transactional
     public PagoResponseDTO registrarPagoManual(Integer citaId, MetodoPago metodoPago, String emailAutenticado) {
+        // El orden de las tres preguntas: primero el modulo -si el negocio no cobra asi, no
+        // existe para nadie, ni para un ADMIN-, despues el rol y el permiso.
+        moduloService.exigir(moduloDe(metodoPago));
+
         Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
         // El rol y el permiso se comprueban antes de tocar la base de datos: a quien no
         // puede cobrar se le dice que no puede, no que la cita no existe.
@@ -235,6 +250,18 @@ public class PagoService {
         marcarPagadoYConfirmarCita(pago);
 
         return PagoResponseDTO.desde(pago);
+    }
+
+    /**
+     * El modulo que gobierna cada medio de pago. Son hijos de PAGOS, asi que apagar el
+     * padre los apaga a los tres de una vez.
+     */
+    private Modulo moduloDe(MetodoPago metodoPago) {
+        return switch (metodoPago) {
+            case TARJETA -> Modulo.PAGO_TARJETA;
+            case EFECTIVO -> Modulo.PAGO_EFECTIVO;
+            case TRANSFERENCIA -> Modulo.PAGO_TRANSFERENCIA;
+        };
     }
 
     /**

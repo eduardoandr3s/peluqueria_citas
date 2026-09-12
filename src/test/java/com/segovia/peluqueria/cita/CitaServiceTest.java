@@ -21,6 +21,8 @@ import com.segovia.peluqueria.peluquero.PeluqueroRepository;
 import com.segovia.peluqueria.peluquero.PeluqueroService;
 import com.segovia.peluqueria.servicio.Servicio;
 import com.segovia.peluqueria.servicio.ServicioRepository;
+import com.segovia.peluqueria.modulo.Modulo;
+import com.segovia.peluqueria.modulo.ModuloService;
 import com.segovia.peluqueria.permiso.Permiso;
 import com.segovia.peluqueria.permiso.PermisoService;
 import com.segovia.peluqueria.usuario.Rol;
@@ -48,6 +50,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 class CitaServiceTest {
@@ -63,6 +66,7 @@ class CitaServiceTest {
     private DiaBloqueadoRepository diaBloqueadoRepository;
     private ApplicationEventPublisher eventPublisher;
     private PermisoService permisoService;
+    private ModuloService moduloService;
     private CitaService citaService;
 
     private final Pageable pageable = PageRequest.of(0, 20);
@@ -70,6 +74,10 @@ class CitaServiceTest {
     @BeforeEach
     void setUp() {
         citaRepository = mock(CitaRepository.class);
+        // Todos los modulos encendidos, que es como nace un negocio: los tests que
+        // apagan alguno lo dicen.
+        moduloService = mock(ModuloService.class);
+        when(moduloService.estaActivo(any())).thenReturn(true);
         usuarioRepository = mock(UsuarioRepository.class);
         servicioRepository = mock(ServicioRepository.class);
         peluqueroRepository = mock(PeluqueroRepository.class);
@@ -98,7 +106,7 @@ class CitaServiceTest {
         // Por defecto los permisos configurables estan concedidos: aqui se prueban las
         // reglas de la cita, no la matriz. Los tests del permiso lo stubbean al reves.
         when(permisoService.tienePermiso(any(), any())).thenReturn(true);
-        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository, peluqueroRepository, peluqueroService, pagoRepository, horario, calendario, eventPublisher, clock, permisoService);
+        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository, peluqueroRepository, peluqueroService, pagoRepository, horario, calendario, eventPublisher, clock, permisoService, moduloService);
 
         // Por defecto, el usuario autenticado es un ADMIN (acceso total).
         Usuario admin = new Usuario();
@@ -248,7 +256,7 @@ class CitaServiceTest {
         HorarioProperties horario = new HorarioProperties();
         CalendarioService calendario = new CalendarioService(diaBloqueadoRepository, citaRepository, horario, relojMadrid);
         citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository,
-                peluqueroRepository, peluqueroService, pagoRepository, horario, calendario, eventPublisher, relojMadrid, permisoService);
+                peluqueroRepository, peluqueroService, pagoRepository, horario, calendario, eventPublisher, relojMadrid, permisoService, moduloService);
 
         CitaRequestDTO request = crearRequestValido();
         request.setFechaHora(LocalDateTime.of(2026, 7, 20, 14, 0));
@@ -1053,6 +1061,22 @@ class CitaServiceTest {
         assertEquals(new BigDecimal("20.00"), cita.getComisionPorcentajeAplicado());
         assertNotNull(cita.getFechaCierre());
         assertEquals(99, cita.getCerradaPor().getIdUsuario());
+    }
+
+    @Test
+    void cerrarCita_conLasComisionesApagadas_congelaNullYNoCero() {
+        // Null y cero no significan lo mismo y se leen luego en la nomina: null es "aqui no
+        // se comisiona" y cero es "trabaja al 0 %". Lo ya congelado en citas viejas no se
+        // toca: apagar un modulo no reescribe el historico.
+        Peluquero peluquero = crearPeluqueroActivo();
+        Cita cita = citaPasadaConPeluquero(peluquero);
+        when(moduloService.estaActivo(Modulo.COMISIONES)).thenReturn(false);
+
+        citaService.cerrarCita(1, cierre(EstadoCita.COMPLETADA, null, null), EMAIL_ADMIN);
+
+        assertEquals(new BigDecimal("15.00"), cita.getPrecioAplicado(), "El precio se congela igual.");
+        assertNull(cita.getComisionPorcentajeAplicado());
+        verify(peluqueroService, never()).porcentajeAplicable(any(), any());
     }
 
     @Test

@@ -8,6 +8,9 @@ import com.segovia.peluqueria.peluquero.dto.ComisionServicioDTO;
 import com.segovia.peluqueria.peluquero.dto.ComisionesUpdateDTO;
 import com.segovia.peluqueria.peluquero.dto.PeluqueroUpdateDTO;
 import com.segovia.peluqueria.servicio.Servicio;
+import com.segovia.peluqueria.modulo.Modulo;
+import com.segovia.peluqueria.modulo.ModuloDesactivadoException;
+import com.segovia.peluqueria.modulo.ModuloService;
 import com.segovia.peluqueria.usuario.Rol;
 import com.segovia.peluqueria.usuario.Usuario;
 import com.segovia.peluqueria.servicio.ServicioRepository;
@@ -20,6 +23,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 class PeluqueroServiceTest {
@@ -29,11 +33,16 @@ class PeluqueroServiceTest {
     private UsuarioRepository usuarioRepository;
     private ServicioRepository servicioRepository;
     private PeluqueroCvService cvService;
+    private ModuloService moduloService;
     private PeluqueroService peluqueroService;
 
     @BeforeEach
     void setUp() {
         peluqueroRepository = mock(PeluqueroRepository.class);
+        // Todos los modulos encendidos, que es como nace un negocio: los tests que
+        // apagan alguno lo dicen.
+        moduloService = mock(ModuloService.class);
+        when(moduloService.estaActivo(any())).thenReturn(true);
         comisionRepository = mock(ComisionServicioRepository.class);
         usuarioRepository = mock(UsuarioRepository.class);
         servicioRepository = mock(ServicioRepository.class);
@@ -43,7 +52,7 @@ class PeluqueroServiceTest {
         // Sin excepciones de comision salvo donde el test las ponga.
         when(comisionRepository.findByPeluqueroIdPeluquero(anyInt())).thenReturn(List.of());
         peluqueroService = new PeluqueroService(peluqueroRepository, comisionRepository,
-                usuarioRepository, servicioRepository, cvService);
+                usuarioRepository, servicioRepository, cvService, moduloService);
     }
 
     private Peluquero crearPeluqueroBase() {
@@ -356,5 +365,72 @@ class PeluqueroServiceTest {
         assertEquals(2, resultado.size());
         assertEquals(1, resultado.get(0).getIdPeluquero());
         assertFalse(resultado.get(1).getActivo());
+    }
+
+    // ---------- el modulo de comisiones ----------
+
+    /** Apaga las comisiones en el doble, como estaria con la tabla escrita. */
+    private void apagarComisiones() {
+        when(moduloService.estaActivo(Modulo.COMISIONES)).thenReturn(false);
+        doThrow(new ModuloDesactivadoException(Modulo.COMISIONES))
+                .when(moduloService).exigir(Modulo.COMISIONES);
+    }
+
+    @Test
+    void comisionesDe_conElModuloApagado_corta() {
+        apagarComisiones();
+
+        assertThrows(ModuloDesactivadoException.class, () -> peluqueroService.comisionesDe(1));
+    }
+
+    @Test
+    void reemplazarComisiones_conElModuloApagado_corta() {
+        apagarComisiones();
+        ComisionesUpdateDTO request = new ComisionesUpdateDTO();
+        request.setComisiones(List.of());
+
+        assertThrows(ModuloDesactivadoException.class,
+                () -> peluqueroService.reemplazarComisiones(1, request));
+        verify(comisionRepository, never()).save(any());
+    }
+
+    @Test
+    void conElModuloApagado_laFichaSaleSinPorcentajeYSinExcepciones() {
+        // No es que sean cero: es que la ficha deja de hablar de dinero. El valor sigue
+        // guardado y vuelve tal cual si el modulo se enciende otra vez.
+        apagarComisiones();
+        Peluquero p = crearPeluqueroBase();
+        p.setComisionPorcentaje(new BigDecimal("20.00"));
+        when(peluqueroRepository.findAll()).thenReturn(List.of(p));
+
+        PeluqueroGestionDTO ficha = peluqueroService.listarParaGestion().get(0);
+
+        assertNull(ficha.getComisionPorcentaje());
+        assertTrue(ficha.getComisionesPorServicio().isEmpty());
+        assertEquals(new BigDecimal("20.00"), p.getComisionPorcentaje(), "El dato no se borra.");
+    }
+
+    @Test
+    void conElModuloApagado_laFichaSeSigueEditandoMientrasNoSeToqueLaComision() {
+        apagarComisiones();
+        Peluquero p = crearPeluqueroBase();
+        when(peluqueroRepository.findById(1)).thenReturn(Optional.of(p));
+        when(peluqueroRepository.save(any(Peluquero.class))).thenAnswer(i -> i.getArgument(0));
+        PeluqueroUpdateDTO request = new PeluqueroUpdateDTO();
+        request.setNombre("Lalo Updated");
+
+        assertEquals("Lalo Updated", peluqueroService.actualizar(1, request).getNombre());
+    }
+
+    @Test
+    void conElModuloApagado_intentarPonerUnaComisionCorta() {
+        apagarComisiones();
+        Peluquero p = crearPeluqueroBase();
+        when(peluqueroRepository.findById(1)).thenReturn(Optional.of(p));
+        PeluqueroUpdateDTO request = new PeluqueroUpdateDTO();
+        request.setComisionPorcentaje(new BigDecimal("30.00"));
+
+        assertThrows(ModuloDesactivadoException.class, () -> peluqueroService.actualizar(1, request));
+        verify(peluqueroRepository, never()).save(any());
     }
 }

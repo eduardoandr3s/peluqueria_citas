@@ -1,6 +1,8 @@
 package com.segovia.peluqueria.produccion;
 
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
+import com.segovia.peluqueria.modulo.Modulo;
+import com.segovia.peluqueria.modulo.ModuloService;
 import com.segovia.peluqueria.peluquero.Peluquero;
 import com.segovia.peluqueria.peluquero.PeluqueroRepository;
 import com.segovia.peluqueria.produccion.dto.LineaProduccionDTO;
@@ -28,13 +30,16 @@ public class ProduccionService {
     private final ProduccionRepository produccionRepository;
     private final PeluqueroRepository peluqueroRepository;
     private final UsuarioRepository usuarioRepository;
+    private final ModuloService moduloService;
 
     public ProduccionService(ProduccionRepository produccionRepository,
                              PeluqueroRepository peluqueroRepository,
-                             UsuarioRepository usuarioRepository) {
+                             UsuarioRepository usuarioRepository,
+                             ModuloService moduloService) {
         this.produccionRepository = produccionRepository;
         this.peluqueroRepository = peluqueroRepository;
         this.usuarioRepository = usuarioRepository;
+        this.moduloService = moduloService;
     }
 
     /**
@@ -61,10 +66,29 @@ public class ProduccionService {
 
     public List<ProduccionPeluqueroDTO> comparativa(LocalDate desde, LocalDate hasta) {
         validarRango(desde, hasta);
-        return produccionRepository.comparativa(desde.atStartOfDay(), hasta.plusDays(1).atStartOfDay()).stream()
+        boolean conComision = comisionEncendida();
+        return produccionRepository
+                .comparativa(desde.atStartOfDay(), hasta.plusDays(1).atStartOfDay(), exigeCobro()).stream()
                 .map(f -> new ProduccionPeluqueroDTO(
-                        entero(f[0]), (String) f[1], numero(f[2]), importe(f[3]), importe(f[4])))
+                        entero(f[0]), (String) f[1], numero(f[2]), importe(f[3]),
+                        conComision ? importe(f[4]) : null))
                 .toList();
+    }
+
+    /**
+     * Si la produccion exige que la cita este cobrada, que es lo que dice el modulo PAGOS.
+     *
+     * <p>Apagado, produccion cuenta las citas COMPLETADA a secas. No es un detalle: sin
+     * pagos nada llegaria nunca a PAGADO y todos los totales del negocio serian cero, que
+     * es exactamente lo que parece un bug y no lo es. Ver {@code ProduccionRepository}.
+     */
+    private boolean exigeCobro() {
+        return moduloService.estaActivo(Modulo.PAGOS);
+    }
+
+    /** Con el modulo apagado la comision no viaja: null es "aqui no se comisiona". */
+    private boolean comisionEncendida() {
+        return moduloService.estaActivo(Modulo.COMISIONES);
     }
 
     private ProduccionResponseDTO produccionDe(Peluquero ficha, LocalDate desde, LocalDate hasta) {
@@ -73,8 +97,15 @@ public class ProduccionService {
         LocalDateTime hastaHora = hasta.plusDays(1).atStartOfDay();
         Integer id = ficha.getIdPeluquero();
 
-        Object[] resumen = primeraFila(produccionRepository.resumen(id, desdeHora, hastaHora));
-        Object[] pendiente = primeraFila(produccionRepository.sinCobrar(id, desdeHora, hastaHora));
+        boolean exigeCobro = exigeCobro();
+        boolean conComision = comisionEncendida();
+
+        Object[] resumen = primeraFila(produccionRepository.resumen(id, desdeHora, hastaHora, exigeCobro));
+        // Sin pagos no hay "realizado sin cobrar": esas citas ya estan contadas arriba, y
+        // repetirlas abajo seria contar dos veces el mismo trabajo.
+        Object[] pendiente = exigeCobro
+                ? primeraFila(produccionRepository.sinCobrar(id, desdeHora, hastaHora))
+                : new Object[]{0L, BigDecimal.ZERO};
 
         ProduccionResponseDTO dto = new ProduccionResponseDTO();
         dto.setIdPeluquero(id);
@@ -83,17 +114,19 @@ public class ProduccionService {
         dto.setHasta(hasta);
         dto.setServiciosRealizados(numero(resumen[0]));
         dto.setImporteVendido(importe(resumen[1]));
-        dto.setComision(importe(resumen[2]));
+        dto.setComision(conComision ? importe(resumen[2]) : null);
+        dto.setExigeCobro(exigeCobro);
         dto.setServiciosSinCobrar(numero(pendiente[0]));
         dto.setImporteSinCobrar(importe(pendiente[1]));
-        dto.setPorServicio(lineas(produccionRepository.porServicio(id, desdeHora, hastaHora)));
-        dto.setPorMes(lineas(produccionRepository.porMes(id, desdeHora, hastaHora)));
+        dto.setPorServicio(lineas(produccionRepository.porServicio(id, desdeHora, hastaHora, exigeCobro), conComision));
+        dto.setPorMes(lineas(produccionRepository.porMes(id, desdeHora, hastaHora, exigeCobro), conComision));
         return dto;
     }
 
-    private List<LineaProduccionDTO> lineas(List<Object[]> filas) {
+    private List<LineaProduccionDTO> lineas(List<Object[]> filas, boolean conComision) {
         return filas.stream()
-                .map(f -> new LineaProduccionDTO((String) f[0], numero(f[1]), importe(f[2]), importe(f[3])))
+                .map(f -> new LineaProduccionDTO((String) f[0], numero(f[1]), importe(f[2]),
+                        conComision ? importe(f[3]) : null))
                 .toList();
     }
 

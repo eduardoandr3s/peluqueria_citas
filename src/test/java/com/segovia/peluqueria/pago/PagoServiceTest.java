@@ -13,6 +13,9 @@ import com.segovia.peluqueria.pago.dto.PaymentIntentResponseDTO;
 import com.segovia.peluqueria.servicio.Servicio;
 import com.segovia.peluqueria.peluquero.Peluquero;
 import com.segovia.peluqueria.peluquero.PeluqueroRepository;
+import com.segovia.peluqueria.modulo.Modulo;
+import com.segovia.peluqueria.modulo.ModuloDesactivadoException;
+import com.segovia.peluqueria.modulo.ModuloService;
 import com.segovia.peluqueria.permiso.Permiso;
 import com.segovia.peluqueria.permiso.PermisoService;
 import com.segovia.peluqueria.usuario.Rol;
@@ -36,6 +39,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 class PagoServiceTest {
@@ -58,11 +62,16 @@ class PagoServiceTest {
     private ReciboPdfGenerador reciboPdfGenerador;
     private PeluqueroRepository peluqueroRepository;
     private PermisoService permisoService;
+    private ModuloService moduloService;
     private PagoService pagoService;
 
     @BeforeEach
     void setUp() {
         pagoRepository = mock(PagoRepository.class);
+        // Todos los modulos encendidos, que es como nace un negocio: los tests que
+        // apagan los pagos lo dicen.
+        moduloService = mock(ModuloService.class);
+        when(moduloService.estaActivo(any())).thenReturn(true);
         citaRepository = mock(CitaRepository.class);
         usuarioRepository = mock(UsuarioRepository.class);
         stripeEventoRepository = mock(StripeEventoRepository.class);
@@ -78,7 +87,7 @@ class PagoServiceTest {
         when(peluqueroRepository.findByUsuarioIdUsuario(anyInt())).thenReturn(Optional.empty());
         pagoService = new PagoService(pagoRepository, citaRepository, usuarioRepository,
                 stripeEventoRepository, paymentGateway, eventPublisher, reciboPdfGenerador,
-                peluqueroRepository, permisoService);
+                peluqueroRepository, permisoService, moduloService);
 
         Usuario admin = new Usuario();
         admin.setIdUsuario(99);
@@ -772,5 +781,86 @@ class PagoServiceTest {
         when(pagoRepository.findById(10)).thenReturn(Optional.of(pago));
 
         assertThrows(EstadoInvalidoException.class, () -> pagoService.generarRecibo(10, EMAIL_CLIENTE));
+    }
+
+    // ---------- los modulos: lo que un permiso no puede hacer ----------
+
+    /** Apaga un modulo en el doble, como lo veria el servicio con la tabla escrita. */
+    private void apagar(Modulo... modulos) {
+        for (Modulo modulo : modulos) {
+            when(moduloService.estaActivo(modulo)).thenReturn(false);
+            doThrow(new ModuloDesactivadoException(modulo)).when(moduloService).exigir(modulo);
+        }
+    }
+
+    @Test
+    void registrarPagoManual_conElEfectivoApagado_cortaAUNADMIN() {
+        // Es lo que separa un modulo de un permiso: un ADMIN tiene todos los permisos por
+        // rol, pero un modulo apagado tampoco existe para el. Si esto pasara a 403 o dejara
+        // cobrar, el modulo seria un permiso mas.
+        apagar(Modulo.PAGO_EFECTIVO);
+
+        assertThrows(ModuloDesactivadoException.class,
+                () -> pagoService.registrarPagoManual(1, MetodoPago.EFECTIVO, EMAIL_ADMIN));
+        // Y corta lo primero de todo: el orden es modulo, rol, permiso.
+        verify(citaRepository, never()).findById(any());
+        verify(pagoRepository, never()).save(any());
+    }
+
+    @Test
+    void registrarPagoManual_cadaMedioDePagoMiraSuPropioModulo() {
+        // El caso realista: se quita la pasarela o el efectivo, no el cobro entero.
+        apagar(Modulo.PAGO_EFECTIVO);
+        Cita cita = crearCitaPendiente();
+        when(citaRepository.findById(1)).thenReturn(Optional.of(cita));
+        when(pagoRepository.findByCitaIdCita(1)).thenReturn(Optional.empty());
+        when(pagoRepository.save(any(Pago.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        PagoResponseDTO resultado = pagoService.registrarPagoManual(1, MetodoPago.TRANSFERENCIA, EMAIL_ADMIN);
+
+        assertEquals(EstadoPago.PAGADO, resultado.getEstadoPago());
+        assertEquals(MetodoPago.TRANSFERENCIA, resultado.getMetodoPago());
+    }
+
+    @Test
+    void crearPaymentIntent_conLaTarjetaApagada_noLlegaAStripe() {
+        apagar(Modulo.PAGO_TARJETA);
+
+        assertThrows(ModuloDesactivadoException.class,
+                () -> pagoService.crearPaymentIntent(1, EMAIL_CLIENTE));
+        verify(paymentGateway, never()).crearIntent(any(), any(), any());
+    }
+
+    @Test
+    void reembolsar_sigueFuncionandoConLosPagosApagados() {
+        // Apagar un modulo no cancela lo que esta a medias ni deja dinero en el aire: lo que
+        // desaparece es COBRAR otra vez, no devolver lo ya cobrado.
+        apagar(Modulo.PAGOS, Modulo.PAGO_TARJETA, Modulo.PAGO_EFECTIVO, Modulo.PAGO_TRANSFERENCIA);
+        Pago pago = crearPagoPendiente(crearCitaPendiente());
+        pago.setEstadoPago(EstadoPago.PAGADO);
+        when(pagoRepository.findByCitaIdCita(1)).thenReturn(Optional.of(pago));
+
+        pagoService.reembolsar(1, EMAIL_ADMIN);
+
+        verify(paymentGateway).reembolsar(INTENT_ID);
+        assertEquals(EstadoPago.REEMBOLSADO, pago.getEstadoPago());
+    }
+
+    @Test
+    void elWebhookSigueConfirmandoConLosPagosApagados() {
+        // Un PaymentIntent vivo cuando se apaga el modulo tiene que poder completarse. Si no,
+        // el cliente paga en Stripe y aqui la cita se queda sin confirmar.
+        apagar(Modulo.PAGOS, Modulo.PAGO_TARJETA);
+        Cita cita = crearCitaPendiente();
+        Pago pago = crearPagoPendiente(cita);
+        when(paymentGateway.validarWebhook(PAYLOAD, FIRMA))
+                .thenReturn(evento("payment_intent.succeeded", INTENT_ID));
+        when(stripeEventoRepository.existsById(EVENTO_ID)).thenReturn(false);
+        when(pagoRepository.findByReferenciaExterna(INTENT_ID)).thenReturn(Optional.of(pago));
+
+        pagoService.procesarWebhook(PAYLOAD, FIRMA);
+
+        assertEquals(EstadoPago.PAGADO, pago.getEstadoPago());
+        assertEquals(EstadoCita.CONFIRMADA, cita.getEstado());
     }
 }
