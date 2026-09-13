@@ -2,6 +2,7 @@ package com.segovia.peluqueria.produccion;
 
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.modulo.Modulo;
+import com.segovia.peluqueria.modulo.ModuloDesactivadoException;
 import com.segovia.peluqueria.modulo.ModuloService;
 import com.segovia.peluqueria.peluquero.Peluquero;
 import com.segovia.peluqueria.peluquero.PeluqueroRepository;
@@ -22,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -261,5 +263,22 @@ class ProduccionServiceTest {
 
         assertNull(comparativa.get(0).getComision());
         assertEquals(new BigDecimal("200.00"), comparativa.get(0).getImporteVendido());
+    }
+
+    // ---- El modulo de produccion ----
+
+    @Test
+    void sinModuloNoHayPRODUCCIONNIPARAUNADMIN() {
+        // Sin pagos y sin comisiones dentro no queda mas que un recuento de citas hechas:
+        // este modulo existe para poder quitar la pantalla entera en vez de dejarla vacia.
+        when(moduloService.estaActivo(Modulo.PRODUCCION)).thenReturn(false);
+        doThrow(new ModuloDesactivadoException(Modulo.PRODUCCION))
+                .when(moduloService).exigir(Modulo.PRODUCCION);
+
+        assertThrows(ModuloDesactivadoException.class,
+                () -> produccionService.produccionPropia(EMAIL, DESDE, HASTA));
+        assertThrows(ModuloDesactivadoException.class,
+                () -> produccionService.comparativa(DESDE, HASTA));
+        verify(produccionRepository, never()).resumen(any(), any(), any(), anyBoolean());
     }
 }

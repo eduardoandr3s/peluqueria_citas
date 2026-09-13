@@ -7,6 +7,8 @@ import com.segovia.peluqueria.notificacion.evento.CitaRecordatorioEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import com.segovia.peluqueria.modulo.Modulo;
+import com.segovia.peluqueria.modulo.ModuloService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -25,15 +27,18 @@ public class RecordatorioCitaScheduler {
     private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
     private final long horasAntes;
+    private final ModuloService moduloService;
 
     public RecordatorioCitaScheduler(CitaRepository citaRepository,
                                      ApplicationEventPublisher eventPublisher,
                                      Clock clock,
-                                     @Value("${peluqueria.recordatorio.horas-antes}") long horasAntes) {
+                                     @Value("${peluqueria.recordatorio.horas-antes}") long horasAntes,
+                                     ModuloService moduloService) {
         this.citaRepository = citaRepository;
         this.eventPublisher = eventPublisher;
         this.clock = clock;
         this.horasAntes = horasAntes;
+        this.moduloService = moduloService;
     }
 
     // Cada hora: el recordatorio se envia con 24 h de antelacion, asi que comprobar
@@ -41,6 +46,13 @@ public class RecordatorioCitaScheduler {
     @Scheduled(fixedRate = 3_600_000)
     @Transactional
     public void procesarRecordatorios() {
+        // Con el modulo apagado no se manda nada y, sobre todo, **no se marca ninguna cita
+        // como avisada**: si se marcaran, volver a encenderlo dejaria sin recordatorio a
+        // todas las citas de esa ventana. Se sale y ya; la programacion no se toca.
+        if (!moduloService.estaActivo(Modulo.RECORDATORIOS_EMAIL)) {
+            return;
+        }
+
         LocalDateTime ahora = LocalDateTime.now(clock);
         LocalDateTime desde = ahora;
         LocalDateTime hasta = ahora.plusHours(horasAntes);

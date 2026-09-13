@@ -1,5 +1,8 @@
 package com.segovia.peluqueria.peluquero;
 
+import com.segovia.peluqueria.modulo.Modulo;
+import com.segovia.peluqueria.modulo.ModuloDesactivadoException;
+import com.segovia.peluqueria.modulo.ModuloService;
 import com.segovia.peluqueria.almacen.AlmacenFicheros;
 import com.segovia.peluqueria.almacen.AlmacenProperties;
 import com.segovia.peluqueria.almacen.ValidadorImagen;
@@ -34,6 +37,7 @@ class PeluqueroCvServiceTest {
     private PermisoService permisoService;
     private AlmacenFicheros almacen;
     private ValidadorImagen validadorImagen;
+    private ModuloService moduloService;
     private PeluqueroCvService cvService;
 
     private Usuario cuentaAna;
@@ -42,6 +46,10 @@ class PeluqueroCvServiceTest {
     @BeforeEach
     void setUp() {
         peluqueroRepository = mock(PeluqueroRepository.class);
+        // Todos los modulos encendidos, que es como nace un negocio: los tests que apagan
+        // alguno lo dicen.
+        moduloService = mock(ModuloService.class);
+        when(moduloService.estaActivo(any())).thenReturn(true);
         usuarioRepository = mock(UsuarioRepository.class);
         permisoService = mock(PermisoService.class);
         almacen = mock(AlmacenFicheros.class);
@@ -49,7 +57,7 @@ class PeluqueroCvServiceTest {
 
         AlmacenProperties propiedades = new AlmacenProperties();
         cvService = new PeluqueroCvService(peluqueroRepository, usuarioRepository, permisoService,
-                almacen, validadorImagen, propiedades);
+                almacen, validadorImagen, propiedades, moduloService);
 
         cuentaAna = cuenta(10, "ana@test.com", Rol.PELUQUERO);
         fichaAna = ficha(1, "Ana", cuentaAna);
@@ -275,5 +283,32 @@ class PeluqueroCvServiceTest {
         peluquero.setActivo(true);
         peluquero.setUsuario(usuario);
         return peluquero;
+    }
+
+    // ---- El modulo del CV del equipo ----
+
+    private void apagarEquipo() {
+        when(moduloService.estaActivo(Modulo.EQUIPO_CV)).thenReturn(false);
+        doThrow(new ModuloDesactivadoException(Modulo.EQUIPO_CV))
+                .when(moduloService).exigir(Modulo.EQUIPO_CV);
+    }
+
+    @Test
+    void sinModuloNoSePUBLICANFICHAS() {
+        apagarEquipo();
+
+        assertThrows(ModuloDesactivadoException.class, () -> cvService.listarPublicos());
+    }
+
+    @Test
+    void sinModuloTampocoSeEDITAELCV() {
+        // Ni el propio ni el de otro: lo que se apaga es publicar fichas, asi que rellenarlas
+        // tampoco tiene sentido. Los textos que ya haya guardados no se tocan.
+        apagarEquipo();
+
+        assertThrows(ModuloDesactivadoException.class, () -> cvService.cvPropio("ana@test.com"));
+        assertThrows(ModuloDesactivadoException.class,
+                () -> cvService.actualizarCvDe(1, new PeluqueroCvUpdateDTO()));
+        verify(peluqueroRepository, never()).save(any());
     }
 }

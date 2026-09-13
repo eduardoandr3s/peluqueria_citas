@@ -433,4 +433,15 @@ class PeluqueroServiceTest {
         assertThrows(ModuloDesactivadoException.class, () -> peluqueroService.actualizar(1, request));
         verify(peluqueroRepository, never()).save(any());
     }
+
+    @Test
+    void sinElModuloDelEquipoLaFichaViajaSinCV() {
+        // La pestana del CV en el panel no existe si el negocio no publica fichas. Los
+        // textos y la foto siguen guardados y vuelven al encenderlo.
+        when(moduloService.estaActivo(Modulo.EQUIPO_CV)).thenReturn(false);
+        Peluquero p = crearPeluqueroBase();
+        when(peluqueroRepository.findAll()).thenReturn(List.of(p));
+
+        assertNull(peluqueroService.listarParaGestion().get(0).getCv());
+    }
 }

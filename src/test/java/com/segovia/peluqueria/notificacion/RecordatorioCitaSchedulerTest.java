@@ -1,5 +1,8 @@
 package com.segovia.peluqueria.notificacion;
 
+import com.segovia.peluqueria.modulo.Modulo;
+import com.segovia.peluqueria.modulo.ModuloDesactivadoException;
+import com.segovia.peluqueria.modulo.ModuloService;
 import com.segovia.peluqueria.cita.Cita;
 import com.segovia.peluqueria.cita.CitaRepository;
 import com.segovia.peluqueria.cita.EstadoCita;
@@ -25,16 +28,22 @@ class RecordatorioCitaSchedulerTest {
 
     private CitaRepository citaRepository;
     private ApplicationEventPublisher eventPublisher;
+    private ModuloService moduloService;
     private RecordatorioCitaScheduler scheduler;
     private Clock clock;
 
     @BeforeEach
     void setUp() {
         citaRepository = mock(CitaRepository.class);
+        // Todos los modulos encendidos, que es como nace un negocio: los tests que apagan
+        // alguno lo dicen.
+        moduloService = mock(ModuloService.class);
+        when(moduloService.estaActivo(any())).thenReturn(true);
         eventPublisher = mock(ApplicationEventPublisher.class);
         // Fijamos el reloj en una fecha conocida: 2026-07-08 10:00
         clock = Clock.fixed(Instant.parse("2026-07-08T08:00:00Z"), ZoneId.of("Europe/Madrid"));
-        scheduler = new RecordatorioCitaScheduler(citaRepository, eventPublisher, clock, HORAS_ANTES);
+        scheduler = new RecordatorioCitaScheduler(citaRepository, eventPublisher, clock, HORAS_ANTES,
+                moduloService);
     }
 
     private Usuario crearUsuario(String email) {
@@ -145,5 +154,20 @@ class RecordatorioCitaSchedulerTest {
         assertTrue(c3.getRecordatorioEnviado());
         verify(citaRepository, times(3)).save(any());
         verify(eventPublisher, times(3)).publishEvent(any(CitaRecordatorioEvent.class));
+    }
+
+    // ---- El modulo de los recordatorios ----
+
+    @Test
+    void conElModuloApagadoNoSeMandaNadaYNOSEMARCANINGUNACITA() {
+        // Marcarlas seria lo comodo y es justo lo que no hay que hacer: al volver a
+        // encenderlo, todas las citas de esa ventana se habrian quedado sin aviso para
+        // siempre. Se sale sin tocar nada.
+        when(moduloService.estaActivo(Modulo.RECORDATORIOS_EMAIL)).thenReturn(false);
+
+        scheduler.procesarRecordatorios();
+
+        verifyNoInteractions(citaRepository);
+        verifyNoInteractions(eventPublisher);
     }
 }

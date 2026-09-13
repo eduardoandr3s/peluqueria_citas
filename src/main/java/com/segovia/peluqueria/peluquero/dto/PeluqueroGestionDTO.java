@@ -39,16 +39,20 @@ public class PeluqueroGestionDTO {
      * aqui y se escribe por {@code PUT /api/peluqueros/{id}/cv}, que reemplaza el bloque
      * entero: en este DTO un null significa "no lo toques" y con eso no se puede vaciar un
      * campo de texto.
+     *
+     * <p>Viene <b>null tambien cuando el modulo del CV esta apagado</b>, que es cuando esa
+     * pestana no existe. Las dos cosas se leen igual desde el panel: no hay nada que pintar.
      */
     private PeluqueroCvDTO cv;
 
     /**
+     * @param cv          el CV ya montado, o null si el negocio no publica fichas.
      * @param conComision si el modulo de comisiones esta encendido. Apagado, la ficha sale
      *                    sin porcentaje y sin excepciones por servicio: no es que sean cero,
      *                    es que aqui no se comisiona.
      */
     public static PeluqueroGestionDTO desde(Peluquero peluquero, List<ComisionServicioDTO> comisiones,
-                                            String fotoUrl, boolean conComision) {
+                                            PeluqueroCvDTO cv, boolean conComision) {
         PeluqueroGestionDTO dto = new PeluqueroGestionDTO();
         dto.setIdPeluquero(peluquero.getIdPeluquero());
         dto.setNombre(peluquero.getNombre());
@@ -61,7 +65,7 @@ public class PeluqueroGestionDTO {
         }
         dto.setComisionesPorServicio(conComision ? comisiones : List.of());
         dto.setOrden(peluquero.getOrden());
-        dto.setCv(PeluqueroCvDTO.desde(peluquero, fotoUrl));
+        dto.setCv(cv);
         return dto;
     }
 }

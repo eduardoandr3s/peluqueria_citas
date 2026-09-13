@@ -7,6 +7,8 @@ import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.galeria.dto.GaleriaFotoResponseDTO;
 import com.segovia.peluqueria.galeria.dto.GaleriaFotoUpdateDTO;
 import com.segovia.peluqueria.permiso.Permiso;
+import com.segovia.peluqueria.modulo.Modulo;
+import com.segovia.peluqueria.modulo.ModuloService;
 import com.segovia.peluqueria.permiso.PermisoService;
 import com.segovia.peluqueria.usuario.Rol;
 import com.segovia.peluqueria.usuario.Usuario;
@@ -31,19 +33,22 @@ public class GaleriaService {
     private final AlmacenProperties almacenProperties;
     private final UsuarioRepository usuarioRepository;
     private final PermisoService permisoService;
+    private final ModuloService moduloService;
 
     public GaleriaService(GaleriaFotoRepository galeriaFotoRepository,
                           AlmacenFicheros almacen,
                           ValidadorImagen validadorImagen,
                           AlmacenProperties almacenProperties,
                           UsuarioRepository usuarioRepository,
-                          PermisoService permisoService) {
+                          PermisoService permisoService,
+                          ModuloService moduloService) {
         this.galeriaFotoRepository = galeriaFotoRepository;
         this.almacen = almacen;
         this.validadorImagen = validadorImagen;
         this.almacenProperties = almacenProperties;
         this.usuarioRepository = usuarioRepository;
         this.permisoService = permisoService;
+        this.moduloService = moduloService;
     }
 
     /**
@@ -53,6 +58,9 @@ public class GaleriaService {
      */
     @Transactional(readOnly = true)
     public List<GaleriaFotoResponseDTO> listarFotos(String emailAutenticado) {
+        // Tambien el listado publico: si el negocio no tiene escaparate, no lo tiene para
+        // nadie. Devolver una lista vacia seria decir «no hay fotos», que es otra cosa.
+        moduloService.exigir(Modulo.GALERIA);
         Integer idActual = idDeCuentaOpcional(emailAutenticado);
         return galeriaFotoRepository.findAllByOrderByOrdenAscIdFotoAsc().stream()
                 .map(foto -> aDTO(foto, idActual))
@@ -75,6 +83,7 @@ public class GaleriaService {
     @Transactional
     public GaleriaFotoResponseDTO subirFoto(MultipartFile imagen, MultipartFile miniatura, String titulo,
                                             String emailAutenticado) {
+        moduloService.exigir(Modulo.GALERIA);
         Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
         verificarPuedeSubir(actual);
 
@@ -107,6 +116,7 @@ public class GaleriaService {
     @Transactional
     public GaleriaFotoResponseDTO actualizarFoto(Integer id, GaleriaFotoUpdateDTO request,
                                                  String emailAutenticado) {
+        moduloService.exigir(Modulo.GALERIA);
         Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
         GaleriaFoto foto = obtenerEntidadPorId(id);
 
@@ -127,6 +137,7 @@ public class GaleriaService {
      */
     @Transactional
     public void eliminarFoto(Integer id, String emailAutenticado) {
+        moduloService.exigir(Modulo.GALERIA);
         Usuario actual = obtenerUsuarioPorEmail(emailAutenticado);
         GaleriaFoto foto = obtenerEntidadPorId(id);
         verificarPuedeEditar(foto, actual, "borrar");

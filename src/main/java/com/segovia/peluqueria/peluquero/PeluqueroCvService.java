@@ -9,6 +9,8 @@ import com.segovia.peluqueria.peluquero.dto.PeluqueroCvDTO;
 import com.segovia.peluqueria.peluquero.dto.PeluqueroCvUpdateDTO;
 import com.segovia.peluqueria.peluquero.dto.PeluqueroPublicoDTO;
 import com.segovia.peluqueria.permiso.Permiso;
+import com.segovia.peluqueria.modulo.Modulo;
+import com.segovia.peluqueria.modulo.ModuloService;
 import com.segovia.peluqueria.permiso.PermisoService;
 import com.segovia.peluqueria.usuario.Rol;
 import com.segovia.peluqueria.usuario.Usuario;
@@ -44,6 +46,7 @@ public class PeluqueroCvService {
     private final PeluqueroRepository peluqueroRepository;
     private final UsuarioRepository usuarioRepository;
     private final PermisoService permisoService;
+    private final ModuloService moduloService;
     private final AlmacenFicheros almacen;
     private final ValidadorImagen validadorImagen;
     private final AlmacenProperties almacenProperties;
@@ -53,13 +56,15 @@ public class PeluqueroCvService {
                               PermisoService permisoService,
                               AlmacenFicheros almacen,
                               ValidadorImagen validadorImagen,
-                              AlmacenProperties almacenProperties) {
+                              AlmacenProperties almacenProperties,
+                              ModuloService moduloService) {
         this.peluqueroRepository = peluqueroRepository;
         this.usuarioRepository = usuarioRepository;
         this.permisoService = permisoService;
         this.almacen = almacen;
         this.validadorImagen = validadorImagen;
         this.almacenProperties = almacenProperties;
+        this.moduloService = moduloService;
     }
 
     /**
@@ -72,6 +77,10 @@ public class PeluqueroCvService {
      */
     @Transactional(readOnly = true)
     public List<PeluqueroPublicoDTO> listarPublicos() {
+        // Lo primero, y tambien en el listado publico: si el negocio no presenta a nadie, no
+        // hay fichas que ver. El resto de la app sigue igual, porque elegir peluquero al
+        // agendar no pasa por aqui: eso sale de /api/peluqueros, que no es el CV.
+        moduloService.exigir(Modulo.EQUIPO_CV);
         return peluqueroRepository.findByActivoTrueOrderByOrdenAscNombreAsc().stream()
                 .map(p -> PeluqueroPublicoDTO.desde(p, urlFoto(p)))
                 .toList();
@@ -85,6 +94,7 @@ public class PeluqueroCvService {
      */
     @Transactional(readOnly = true)
     public PeluqueroCvDTO cvPropio(String emailAutenticado) {
+        moduloService.exigir(Modulo.EQUIPO_CV);
         Peluquero ficha = fichaDeLaCuenta(emailAutenticado);
         return PeluqueroCvDTO.desde(ficha, urlFoto(ficha));
     }
@@ -95,6 +105,7 @@ public class PeluqueroCvService {
      */
     @Transactional
     public PeluqueroCvDTO actualizarCvPropio(String emailAutenticado, PeluqueroCvUpdateDTO request) {
+        moduloService.exigir(Modulo.EQUIPO_CV);
         Usuario actual = cuenta(emailAutenticado);
         Peluquero ficha = fichaDe(actual);
         verificarPuedeEditarElSuyo(actual);
@@ -108,6 +119,7 @@ public class PeluqueroCvService {
      */
     @Transactional
     public PeluqueroCvDTO actualizarCvDe(Integer idPeluquero, PeluqueroCvUpdateDTO request) {
+        moduloService.exigir(Modulo.EQUIPO_CV);
         return guardarCv(porId(idPeluquero), request);
     }
 
@@ -120,6 +132,7 @@ public class PeluqueroCvService {
      */
     @Transactional
     public PeluqueroCvDTO subirFoto(Integer idPeluquero, MultipartFile foto, String emailAutenticado) {
+        moduloService.exigir(Modulo.EQUIPO_CV);
         Peluquero ficha = porId(idPeluquero);
         verificarPuedeEditar(ficha, emailAutenticado);
 
@@ -140,6 +153,7 @@ public class PeluqueroCvService {
     /** Quita la foto. Idempotente: sin foto no hace nada, como el borrado del catalogo. */
     @Transactional
     public PeluqueroCvDTO borrarFoto(Integer idPeluquero, String emailAutenticado) {
+        moduloService.exigir(Modulo.EQUIPO_CV);
         Peluquero ficha = porId(idPeluquero);
         verificarPuedeEditar(ficha, emailAutenticado);
 

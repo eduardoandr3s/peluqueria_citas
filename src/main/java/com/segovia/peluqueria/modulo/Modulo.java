@@ -52,7 +52,43 @@ public enum Modulo {
     PAGO_EFECTIVO("Pago en efectivo", "Registrar cobros en efectivo", PAGOS),
 
     /** Cobro por transferencia, registrado a mano. */
-    PAGO_TRANSFERENCIA("Pago por transferencia", "Registrar cobros por transferencia", PAGOS);
+    PAGO_TRANSFERENCIA("Pago por transferencia", "Registrar cobros por transferencia", PAGOS),
+
+    /**
+     * El escaparate de trabajos. Apagado desaparecen la pantalla del panel, la entrada en
+     * Servicios de la app y el listado publico: una peluqueria puede no querer escaparate.
+     *
+     * <p>Las fotos que ya esten subidas se quedan en el bucket y vuelven al encenderlo. Los
+     * permisos de galeria (subir, editar propia, editar ajena, ordenar) siguen existiendo y
+     * no hay que tocarlos: sin el modulo no se llega a preguntarlos.
+     */
+    GALERIA("Galeria de trabajos", "Escaparate publico de fotos de trabajos hechos"),
+
+    /**
+     * El CV publico de cada profesional y la pantalla «El equipo». Apagado, el cliente elige
+     * hora y ya, sin mirar con quien: hay negocios que no quieren poner cara a nadie.
+     *
+     * <p>Lo que se apaga es publicarlo y editarlo. Los textos y las fotos siguen guardados.
+     */
+    EQUIPO_CV("CV del equipo", "Ficha publica de cada profesional para que el cliente elija"),
+
+    /**
+     * Produccion y nomina. Apagado se caen las pantallas y sus endpoints.
+     *
+     * <p>Es el que mas sentido tiene apagar cuando ya se apagaron los otros dos: sin pagos y
+     * sin comisiones, dentro de produccion no queda mas que un recuento de citas hechas, y
+     * vale mas quitarlo de un check que dejar una pantalla medio vacia.
+     */
+    PRODUCCION("Produccion", "Lo vendido por cada profesional, con su desglose"),
+
+    /**
+     * El correo automatico que se manda antes de la cita. Apagado, el scheduler sigue
+     * corriendo pero no manda nada: no se toca la programacion, se deja de avisar.
+     *
+     * <p>No alcanza a los demas correos. El de una cita agendada o anulada es la confirmacion
+     * de algo que acaba de pasar y no un recordatorio, asi que sale igual.
+     */
+    RECORDATORIOS_EMAIL("Recordatorios por correo", "Aviso automatico al cliente antes de su cita");
 
     private final String nombre;
     private final String descripcion;

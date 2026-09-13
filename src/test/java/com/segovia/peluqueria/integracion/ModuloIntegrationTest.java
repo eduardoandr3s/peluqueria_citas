@@ -210,6 +210,41 @@ class ModuloIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void apagarLaGaleriaSeLLEVAELESCAPARATE() {
+        // El listado es publico, asi que se comprueba sin token: un 409 dice «aqui no hay
+        // galeria», que no es lo mismo que una lista vacia («no hay fotos todavia»).
+        assertEquals(HttpStatus.OK, sinToken("/api/galeria"));
+
+        apagar("GALERIA");
+
+        assertEquals(HttpStatus.CONFLICT, sinToken("/api/galeria"));
+        // Y tampoco la ve el ADMIN, que es lo que separa un modulo de un permiso.
+        assertEquals(HttpStatus.CONFLICT, get("/api/galeria", tokenAdmin));
+    }
+
+    @Test
+    void apagarElEquipoSeLLEVAELCVPUBLICO() {
+        assertEquals(HttpStatus.OK, sinToken("/api/peluqueros/publicos"));
+
+        apagar("EQUIPO_CV");
+
+        assertEquals(HttpStatus.CONFLICT, sinToken("/api/peluqueros/publicos"));
+        // Elegir con quien agendar sigue funcionando: eso sale de /api/peluqueros, que no es
+        // el CV. Lo que se apaga es presentar a nadie, no la agenda.
+        assertEquals(HttpStatus.OK, get("/api/peluqueros", tokenCliente));
+    }
+
+    @Test
+    void apagarProduccionCortaTAMBIENALADMIN() {
+        assertEquals(HttpStatus.OK, get("/api/produccion/peluquero/" + fichaLaura, tokenAdmin));
+
+        apagar("PRODUCCION");
+
+        assertEquals(HttpStatus.CONFLICT, get("/api/produccion/peluquero/" + fichaLaura, tokenAdmin));
+        assertEquals(HttpStatus.CONFLICT, get("/api/produccion/mia", tokenLaura));
+    }
+
+    @Test
     void unaClaveQueNoExisteDevuelve400() {
         assertEquals(HttpStatus.BAD_REQUEST, escribir("MODULO_INVENTADO", false, tokenAdmin).getStatusCode());
     }
@@ -225,7 +260,8 @@ class ModuloIntegrationTest extends AbstractIntegrationTest {
     }
 
     private void encenderTodo() {
-        for (String clave : List.of("COMISIONES", "PAGOS", "PAGO_TARJETA", "PAGO_EFECTIVO", "PAGO_TRANSFERENCIA")) {
+        for (String clave : List.of("COMISIONES", "PAGOS", "PAGO_TARJETA", "PAGO_EFECTIVO",
+                "PAGO_TRANSFERENCIA", "GALERIA", "EQUIPO_CV", "PRODUCCION", "RECORDATORIOS_EMAIL")) {
             encender(clave);
         }
     }
@@ -288,6 +324,11 @@ class ModuloIntegrationTest extends AbstractIntegrationTest {
     private Integer idUsuario(String email) {
         return jdbcTemplate.queryForObject(
                 "SELECT id_usuario FROM usuarios WHERE email = ?", Integer.class, email);
+    }
+
+    /** Una ruta publica, tal y como la ve alguien sin cuenta. */
+    private org.springframework.http.HttpStatusCode sinToken(String path) {
+        return rest.getForEntity(url(path), String.class).getStatusCode();
     }
 
     private org.springframework.http.HttpStatusCode get(String path, String token) {

@@ -50,6 +50,7 @@ public class ProduccionService {
      * id de otro.
      */
     public ProduccionResponseDTO produccionPropia(String emailAutenticado, LocalDate desde, LocalDate hasta) {
+        moduloService.exigir(Modulo.PRODUCCION);
         Usuario actual = usuarioRepository.findByEmail(emailAutenticado)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con email: " + emailAutenticado));
         Peluquero ficha = peluqueroRepository.findByUsuarioIdUsuario(actual.getIdUsuario())
@@ -59,12 +60,14 @@ public class ProduccionService {
     }
 
     public ProduccionResponseDTO produccionDePeluquero(Integer idPeluquero, LocalDate desde, LocalDate hasta) {
+        moduloService.exigir(Modulo.PRODUCCION);
         Peluquero ficha = peluqueroRepository.findById(idPeluquero)
                 .orElseThrow(() -> new ResourceNotFoundException("Peluquero no encontrado con id: " + idPeluquero));
         return produccionDe(ficha, desde, hasta);
     }
 
     public List<ProduccionPeluqueroDTO> comparativa(LocalDate desde, LocalDate hasta) {
+        moduloService.exigir(Modulo.PRODUCCION);
         validarRango(desde, hasta);
         boolean conComision = comisionEncendida();
         return produccionRepository

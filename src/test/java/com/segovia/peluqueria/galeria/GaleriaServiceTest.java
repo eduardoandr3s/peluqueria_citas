@@ -1,5 +1,8 @@
 package com.segovia.peluqueria.galeria;
 
+import com.segovia.peluqueria.modulo.Modulo;
+import com.segovia.peluqueria.modulo.ModuloDesactivadoException;
+import com.segovia.peluqueria.modulo.ModuloService;
 import com.segovia.peluqueria.almacen.AlmacenEnMemoria;
 import com.segovia.peluqueria.almacen.AlmacenProperties;
 import com.segovia.peluqueria.almacen.ValidadorImagen;
@@ -32,6 +35,7 @@ class GaleriaServiceTest {
     private static final String EMAIL_LUIS = "luis@peluqueria.com";
 
     private GaleriaFotoRepository galeriaFotoRepository;
+    private ModuloService moduloService;
     private GaleriaService galeriaService;
     private AlmacenEnMemoria almacen;
     private AlmacenProperties almacenProperties;
@@ -45,12 +49,17 @@ class GaleriaServiceTest {
     @BeforeEach
     void setUp() {
         galeriaFotoRepository = mock(GaleriaFotoRepository.class);
+        // Todos los modulos encendidos, que es como nace un negocio: los tests que apagan
+        // alguno lo dicen.
+        moduloService = mock(ModuloService.class);
+        when(moduloService.estaActivo(any())).thenReturn(true);
         almacen = new AlmacenEnMemoria();
         almacenProperties = new AlmacenProperties();
         usuarioRepository = mock(UsuarioRepository.class);
         permisoService = mock(PermisoService.class);
         galeriaService = new GaleriaService(galeriaFotoRepository, almacen,
-                new ValidadorImagen(almacenProperties), almacenProperties, usuarioRepository, permisoService);
+                new ValidadorImagen(almacenProperties), almacenProperties, usuarioRepository, permisoService,
+                moduloService);
         when(galeriaFotoRepository.save(any(GaleriaFoto.class))).thenAnswer(i -> i.getArgument(0));
 
         admin = usuario(1, "Lalo", Rol.ADMIN, EMAIL_ADMIN);
@@ -462,5 +471,33 @@ class GaleriaServiceTest {
         galeriaService.eliminarFoto(1, EMAIL_ADMIN);
 
         assertEquals(0, almacen.total());
+    }
+
+    // ---- El modulo de la galeria ----
+
+    private void apagarGaleria() {
+        when(moduloService.estaActivo(Modulo.GALERIA)).thenReturn(false);
+        doThrow(new ModuloDesactivadoException(Modulo.GALERIA))
+                .when(moduloService).exigir(Modulo.GALERIA);
+    }
+
+    @Test
+    void sinModuloNoHayGALERIANIPARAUNADMIN() {
+        // Un ADMIN tiene todos los permisos por rol; el modulo lo deja fuera igual, porque
+        // no dice quien puede, dice que este negocio no tiene escaparate.
+        apagarGaleria();
+
+        assertThrows(ModuloDesactivadoException.class, () -> galeriaService.listarFotos(EMAIL_ADMIN));
+        assertThrows(ModuloDesactivadoException.class, () -> galeriaService.eliminarFoto(1, EMAIL_ADMIN));
+        verify(galeriaFotoRepository, never()).deleteById(any());
+    }
+
+    @Test
+    void sinModuloTampocoSeLISTASINCUENTA() {
+        // El listado es publico, y aun asi se corta: devolver una lista vacia diria «no hay
+        // fotos», que es otra cosa distinta de «aqui no hay galeria».
+        apagarGaleria();
+
+        assertThrows(ModuloDesactivadoException.class, () -> galeriaService.listarFotos(null));
     }
 }

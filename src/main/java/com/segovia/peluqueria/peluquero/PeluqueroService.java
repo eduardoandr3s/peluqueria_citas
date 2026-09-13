@@ -5,6 +5,7 @@ import com.segovia.peluqueria.peluquero.dto.ComisionServicioDTO;
 import com.segovia.peluqueria.peluquero.dto.ComisionesUpdateDTO;
 import com.segovia.peluqueria.modulo.Modulo;
 import com.segovia.peluqueria.modulo.ModuloService;
+import com.segovia.peluqueria.peluquero.dto.PeluqueroCvDTO;
 import com.segovia.peluqueria.peluquero.dto.PeluqueroGestionDTO;
 import com.segovia.peluqueria.peluquero.dto.PeluqueroRequestDTO;
 import com.segovia.peluqueria.peluquero.dto.PeluqueroResponseDTO;
@@ -65,7 +66,7 @@ public class PeluqueroService {
         return peluqueroRepository.findAll().stream()
                 .sorted(Comparator.comparing(Peluquero::getIdPeluquero))
                 .map(p -> PeluqueroGestionDTO.desde(
-                        p, comisionesGuardadas(p.getIdPeluquero()), cvService.urlFoto(p), conComision()))
+                        p, comisionesGuardadas(p.getIdPeluquero()), cvDe(p), conComision()))
                 .toList();
     }
 
@@ -106,7 +107,7 @@ public class PeluqueroService {
         }
         Peluquero guardado = peluqueroRepository.save(peluquero);
         return PeluqueroGestionDTO.desde(guardado, comisionesGuardadas(guardado.getIdPeluquero()),
-                cvService.urlFoto(guardado), conComision());
+                cvDe(guardado), conComision());
     }
 
     /**
@@ -147,6 +148,16 @@ public class PeluqueroService {
     public List<ComisionServicioDTO> comisionesDe(Integer idPeluquero) {
         moduloService.exigir(Modulo.COMISIONES);
         return comisionesGuardadas(idPeluquero);
+    }
+
+    /**
+     * El CV anidado en la ficha, o null si el negocio no publica fichas del equipo: ahi esa
+     * pestana del panel no existe, igual que no existe la pantalla de la app.
+     */
+    private PeluqueroCvDTO cvDe(Peluquero peluquero) {
+        return moduloService.estaActivo(Modulo.EQUIPO_CV)
+                ? PeluqueroCvDTO.desde(peluquero, cvService.urlFoto(peluquero))
+                : null;
     }
 
     /** Si el negocio comisiona. Apagado, la ficha sale sin porcentaje y sin excepciones. */
