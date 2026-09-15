@@ -255,6 +255,55 @@ class ModuloIntegrationTest extends AbstractIntegrationTest {
         assertEquals(HttpStatus.OK, escribir(clave, true, tokenAdmin).getStatusCode());
     }
 
+    // ---------- perfiles de arranque ----------
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void unPerfilDeArranqueApagaTodoLoQueNoEsSuyo() {
+        // Es el atajo para dar de alta una peluqueria nueva: los modulos nacen todos
+        // encendidos, que es lo correcto para un negocio que ya venia funcionando y justo
+        // lo contrario de lo que quiere uno que acaba de entrar.
+        ResponseEntity<List> resp = rest.exchange(url("/api/modulos/perfiles/SOLO_AGENDA"),
+                HttpMethod.POST, new HttpEntity<>(null, cabecera(tokenAdmin)), List.class);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+
+        List<String> claves = (List<String>) rest.getForEntity(url("/api/modulos/activos"), Map.class)
+                .getBody().get("modulos");
+        assertEquals(List.of("RECORDATORIOS_EMAIL"), claves);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void elPerfilDeCajaNoEnciendeLaPasarelaDeTarjeta() {
+        // Stripe necesita una cuenta y unas claves propias de cada negocio: el primer dia
+        // de un cliente nuevo no hay con que cobrar online, y ofrecerselo al cliente final
+        // seria una pasarela que devuelve error.
+        rest.exchange(url("/api/modulos/perfiles/AGENDA_Y_CAJA"), HttpMethod.POST,
+                new HttpEntity<>(null, cabecera(tokenAdmin)), List.class);
+
+        List<String> claves = (List<String>) rest.getForEntity(url("/api/modulos/activos"), Map.class)
+                .getBody().get("modulos");
+        assertTrue(claves.contains("PAGO_EFECTIVO"));
+        assertFalse(claves.contains("PAGO_TARJETA"));
+    }
+
+    @Test
+    void aplicarUnPerfilEsSoloDelAdmin() {
+        // Apaga ocho cosas de golpe: menos aun que encenderlas de una en una.
+        assertEquals(HttpStatus.FORBIDDEN, aplicarPerfil("SOLO_AGENDA", tokenLaura).getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, aplicarPerfil("SOLO_AGENDA", tokenCliente).getStatusCode());
+    }
+
+    @Test
+    void unPerfilQueNoExisteEsUn400YNoUn500() {
+        assertEquals(HttpStatus.BAD_REQUEST, aplicarPerfil("PERFIL_INVENTADO", tokenAdmin).getStatusCode());
+    }
+
+    private ResponseEntity<String> aplicarPerfil(String clave, String token) {
+        return rest.exchange(url("/api/modulos/perfiles/" + clave), HttpMethod.POST,
+                new HttpEntity<>(null, cabecera(token)), String.class);
+    }
+
     private void apagar(String clave) {
         assertEquals(HttpStatus.OK, escribir(clave, false, tokenAdmin).getStatusCode());
     }

@@ -158,6 +158,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/modulos").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/modulos").hasRole("ADMIN")
 
+                        // Los perfiles de arranque encienden y apagan un juego entero de
+                        // modulos de una vez. Solo ADMIN, igual que encenderlos de uno en uno.
+                        .requestMatchers(HttpMethod.GET, "/api/modulos/perfiles").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/modulos/perfiles/**").hasRole("ADMIN")
+
                         // La ficha del negocio (nombre, contacto, logo, horario) es PUBLICA por
                         // lo mismo que los modulos activos: las dos apps la pintan antes del
                         // login y no hay nada privado dentro. Editarla es de ADMIN, y la regla

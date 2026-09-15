@@ -57,3 +57,7 @@ build/
 # Project context (local, not synced)
 AGENTS.md
 
+# Ficheros de alta de un cliente: llevan la contrasena del primer administrador y la
+# conexion a su base de datos. La plantilla (scripts/alta-cliente.env.ejemplo) si va.
+scripts/*.env
+!scripts/*.env.ejemplo

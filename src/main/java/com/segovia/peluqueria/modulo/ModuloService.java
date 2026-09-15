@@ -3,6 +3,7 @@ package com.segovia.peluqueria.modulo;
 import com.segovia.peluqueria.modulo.dto.ActualizarModulosDTO;
 import com.segovia.peluqueria.modulo.dto.CambioModuloDTO;
 import com.segovia.peluqueria.modulo.dto.ModuloDTO;
+import com.segovia.peluqueria.modulo.dto.PerfilArranqueDTO;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -117,6 +118,48 @@ public class ModuloService {
         }
         cache.set(null);
         return listar();
+    }
+
+    /** Los perfiles de arranque que se le pueden ofrecer a una peluqueria nueva. */
+    public List<PerfilArranqueDTO> perfiles() {
+        return Arrays.stream(PerfilArranque.values())
+                .map(PerfilArranqueDTO::new)
+                .toList();
+    }
+
+    /**
+     * Aplica un perfil de arranque: escribe el estado de <b>todos</b> los modulos de una
+     * vez, encendiendo los del perfil y apagando el resto.
+     *
+     * <p>Se escriben todos y no solo los que cambian, a proposito: asi la tabla queda con
+     * una fila explicita por modulo y el resultado no depende de lo que hubiera antes.
+     * Aplicar el mismo perfil dos veces deja lo mismo.
+     *
+     * <p><b>No borra nada.</b> Vale aqui igual que al apagar un modulo a mano: los datos de
+     * lo que se apaga siguen en la base y vuelven al encenderlo. Lo unico que este atajo
+     * hace distinto es apagar varias cosas de golpe, y por eso la pantalla enseña antes la
+     * lista de lo que se va a apagar.
+     */
+    @Transactional
+    public List<ModuloDTO> aplicarPerfil(PerfilArranque perfil) {
+        for (Modulo modulo : Modulo.values()) {
+            boolean encendido = perfil.getEncendidos().contains(modulo);
+            ModuloEstado fila = moduloRepository.findById(modulo.name())
+                    .orElseGet(() -> new ModuloEstado(modulo, encendido));
+            fila.setActivo(encendido);
+            moduloRepository.save(fila);
+        }
+        cache.set(null);
+        return listar();
+    }
+
+    /** Traduce la clave que llega por URL. Una que no exista es un 400, no un 500. */
+    public PerfilArranque resolverPerfil(String clave) {
+        try {
+            return PerfilArranque.valueOf(clave);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("No existe el perfil de arranque " + clave + ".");
+        }
     }
 
     private Modulo resolver(String clave) {

@@ -3,8 +3,11 @@ package com.segovia.peluqueria.modulo;
 import com.segovia.peluqueria.modulo.dto.ActualizarModulosDTO;
 import com.segovia.peluqueria.modulo.dto.ModuloDTO;
 import com.segovia.peluqueria.modulo.dto.ModulosActivosDTO;
+import com.segovia.peluqueria.modulo.dto.PerfilArranqueDTO;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -46,5 +49,24 @@ public class ModuloController {
     @PutMapping
     public List<ModuloDTO> actualizar(@Valid @RequestBody ActualizarModulosDTO request) {
         return moduloService.actualizar(request);
+    }
+
+    /**
+     * Los perfiles de arranque, con lo que enciende y lo que apaga cada uno. Solo ADMIN:
+     * es la pantalla de configuracion, y lo que hace el publico con esto es nada.
+     */
+    @GetMapping("/perfiles")
+    public List<PerfilArranqueDTO> perfiles() {
+        return moduloService.perfiles();
+    }
+
+    /**
+     * Aplica un perfil de arranque. Es POST y no PUT porque no se esta guardando "el
+     * perfil" en ningun sitio: se dispara una accion que reescribe el estado de todos los
+     * modulos y despues no queda perfil que consultar.
+     */
+    @PostMapping("/perfiles/{clave}")
+    public List<ModuloDTO> aplicarPerfil(@PathVariable String clave) {
+        return moduloService.aplicarPerfil(moduloService.resolverPerfil(clave));
     }
 }

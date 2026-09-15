@@ -3,10 +3,13 @@ package com.segovia.peluqueria.modulo;
 import com.segovia.peluqueria.modulo.dto.ActualizarModulosDTO;
 import com.segovia.peluqueria.modulo.dto.CambioModuloDTO;
 import com.segovia.peluqueria.modulo.dto.ModuloDTO;
+import com.segovia.peluqueria.modulo.dto.PerfilArranqueDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -185,6 +188,122 @@ class ModuloServiceTest {
         assertEquals("PAGOS", tarjeta.getPadre());
         assertEquals(null, filaDe(Modulo.PAGOS).getPadre());
         assertEquals(Modulo.values().length, moduloService.listar().size());
+    }
+
+
+    // ---------- perfiles de arranque ----------
+
+    @Test
+    void aplicarUnPerfilEscribeTodosLosModulos() {
+        // Todos y no solo los que cambian: asi el resultado no depende de lo que hubiera
+        // antes y aplicar el mismo perfil dos veces deja lo mismo.
+        moduloService.aplicarPerfil(PerfilArranque.SOLO_AGENDA);
+
+        verify(moduloRepository, times(Modulo.values().length)).save(any(ModuloEstado.class));
+    }
+
+    @Test
+    void soloAgendaDejaLosRecordatoriosYApagaElResto() {
+        capturarLoGuardado();
+
+        moduloService.aplicarPerfil(PerfilArranque.SOLO_AGENDA);
+
+        assertTrue(moduloService.estaActivo(Modulo.RECORDATORIOS_EMAIL));
+        assertFalse(moduloService.estaActivo(Modulo.PAGOS));
+        assertFalse(moduloService.estaActivo(Modulo.GALERIA));
+        assertFalse(moduloService.estaActivo(Modulo.PRODUCCION));
+        assertFalse(moduloService.estaActivo(Modulo.COMISIONES));
+    }
+
+    @Test
+    void agendaYCajaNoEnciendeLaPasarelaDeTarjeta() {
+        // No es un olvido: Stripe necesita una cuenta y unas claves propias de cada negocio,
+        // asi que el primer dia de un cliente nuevo no hay con que cobrar online. Encenderlo
+        // seria ofrecerle al cliente final una pasarela que devuelve error.
+        capturarLoGuardado();
+
+        moduloService.aplicarPerfil(PerfilArranque.AGENDA_Y_CAJA);
+
+        assertTrue(moduloService.estaActivo(Modulo.PAGOS));
+        assertTrue(moduloService.estaActivo(Modulo.PAGO_EFECTIVO));
+        assertTrue(moduloService.estaActivo(Modulo.PAGO_TRANSFERENCIA));
+        assertFalse(moduloService.estaActivo(Modulo.PAGO_TARJETA));
+    }
+
+    @Test
+    void elPerfilTodoDejaElProductoEntero() {
+        capturarLoGuardado();
+
+        moduloService.aplicarPerfil(PerfilArranque.TODO);
+
+        for (Modulo modulo : Modulo.values()) {
+            assertTrue(moduloService.estaActivo(modulo), modulo + " deberia quedar encendido.");
+        }
+    }
+
+    @Test
+    void aplicarUnPerfilTiraLaCache() {
+        // Sin esto, la pantalla seguiria pintando el estado de antes hasta el siguiente
+        // reinicio, que es justo el bug que se arreglo cuando se apago COMISIONES a mano.
+        capturarLoGuardado();
+        moduloService.estaActivo(Modulo.GALERIA);
+
+        moduloService.aplicarPerfil(PerfilArranque.SOLO_AGENDA);
+
+        assertFalse(moduloService.estaActivo(Modulo.GALERIA));
+    }
+
+    @Test
+    void aplicarDosVecesElMismoPerfilDejaLoMismo() {
+        capturarLoGuardado();
+
+        moduloService.aplicarPerfil(PerfilArranque.AGENDA_Y_CAJA);
+        List<ModuloDTO> primera = moduloService.listar();
+        moduloService.aplicarPerfil(PerfilArranque.AGENDA_Y_CAJA);
+
+        assertEquals(primera, moduloService.listar());
+    }
+
+    @Test
+    void unPerfilQueNoExisteSeRechaza() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> moduloService.resolverPerfil("PERFIL_INVENTADO"));
+        assertTrue(ex.getMessage().contains("PERFIL_INVENTADO"));
+    }
+
+    @Test
+    void cadaPerfilDiceQueEnciendeYQueApaga() {
+        // Las dos listas van resueltas desde aqui para que el panel pueda avisar de lo que
+        // se pierde sin recalcularlo por su cuenta y arriesgarse a discrepar.
+        List<PerfilArranqueDTO> perfiles = moduloService.perfiles();
+
+        assertEquals(PerfilArranque.values().length, perfiles.size());
+        for (PerfilArranqueDTO perfil : perfiles) {
+            assertEquals(Modulo.values().length, perfil.getEnciende().size() + perfil.getApaga().size());
+        }
+        PerfilArranqueDTO soloAgenda = perfiles.stream()
+                .filter(p -> p.getClave().equals("SOLO_AGENDA"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(List.of("RECORDATORIOS_EMAIL"), soloAgenda.getEnciende());
+        assertTrue(soloAgenda.getApaga().contains("PAGOS"));
+    }
+
+    /**
+     * Hace que el repositorio mockeado se comporte como una tabla: lo que se guarda es lo
+     * que se lee despues. Sin esto, {@code findAll} seguiria devolviendo la lista vacia y
+     * todos los modulos pareceran encendidos por el valor por defecto.
+     */
+    private void capturarLoGuardado() {
+        Map<String, ModuloEstado> tabla = new LinkedHashMap<>();
+        when(moduloRepository.save(any(ModuloEstado.class))).thenAnswer(inv -> {
+            ModuloEstado fila = inv.getArgument(0);
+            tabla.put(fila.getClave(), fila);
+            return fila;
+        });
+        when(moduloRepository.findAll()).thenAnswer(inv -> List.copyOf(tabla.values()));
+        when(moduloRepository.findById(anyString()))
+                .thenAnswer(inv -> Optional.ofNullable(tabla.get(inv.getArgument(0))));
     }
 
     private ModuloDTO filaDe(Modulo modulo) {
