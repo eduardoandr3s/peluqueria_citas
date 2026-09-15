@@ -4,7 +4,7 @@ import com.segovia.peluqueria.calendario.dto.DiaBloqueadoRequestDTO;
 import com.segovia.peluqueria.calendario.dto.DiaBloqueadoResponseDTO;
 import com.segovia.peluqueria.cita.CitaRepository;
 import com.segovia.peluqueria.cita.EstadoCita;
-import com.segovia.peluqueria.cita.HorarioProperties;
+import com.segovia.peluqueria.negocio.NegocioService;
 import com.segovia.peluqueria.exception.ConflictoHorarioException;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,14 +30,15 @@ class CalendarioServiceTest {
 
     private DiaBloqueadoRepository diaBloqueadoRepository;
     private CitaRepository citaRepository;
-    private HorarioProperties horario;
+    private NegocioService negocio;
     private CalendarioService calendarioService;
 
     @BeforeEach
     void setUp() {
         diaBloqueadoRepository = mock(DiaBloqueadoRepository.class);
         citaRepository = mock(CitaRepository.class);
-        horario = new HorarioProperties();
+        negocio = mock(NegocioService.class);
+        when(negocio.diasCerrados()).thenReturn(EnumSet.of(DayOfWeek.SUNDAY));
 
         when(diaBloqueadoRepository.existsByFecha(any())).thenReturn(false);
         when(diaBloqueadoRepository.findByFecha(any())).thenReturn(Optional.empty());
@@ -50,7 +51,7 @@ class CalendarioServiceTest {
         });
 
         Clock clock = Clock.fixed(HOY.atTime(12, 0).atZone(ZONA).toInstant(), ZONA);
-        calendarioService = new CalendarioService(diaBloqueadoRepository, citaRepository, horario, clock);
+        calendarioService = new CalendarioService(diaBloqueadoRepository, citaRepository, negocio, clock);
     }
 
     private DiaBloqueado bloqueo(LocalDate fecha, String motivo) {
@@ -83,7 +84,7 @@ class CalendarioServiceTest {
     @Test
     void esCerrado_respetaDiasCerradosConfigurados() {
         // Un negocio que ademas cierra los lunes.
-        horario.setDiasCerrados(EnumSet.of(DayOfWeek.SUNDAY, DayOfWeek.MONDAY));
+        when(negocio.diasCerrados()).thenReturn(EnumSet.of(DayOfWeek.SUNDAY, DayOfWeek.MONDAY));
 
         assertTrue(calendarioService.esCerrado(LocalDate.of(2026, 8, 10)));
     }

@@ -2,7 +2,7 @@ package com.segovia.peluqueria.asistente;
 
 import com.segovia.peluqueria.calendario.dto.DiaCerradoDTO;
 import com.segovia.peluqueria.cita.CitaService;
-import com.segovia.peluqueria.cita.HorarioProperties;
+import com.segovia.peluqueria.negocio.NegocioService;
 import com.segovia.peluqueria.peluquero.PeluqueroService;
 import com.segovia.peluqueria.servicio.ServicioService;
 import org.slf4j.Logger;
@@ -47,18 +47,18 @@ public class AsistenteHerramientas {
     private final ServicioService servicioService;
     private final CitaService citaService;
     private final PeluqueroService peluqueroService;
-    private final HorarioProperties horario;
+    private final NegocioService negocio;
     private final Clock clock;
 
     public AsistenteHerramientas(ServicioService servicioService,
                                  CitaService citaService,
                                  PeluqueroService peluqueroService,
-                                 HorarioProperties horario,
+                                 NegocioService negocio,
                                  Clock clock) {
         this.servicioService = servicioService;
         this.citaService = citaService;
         this.peluqueroService = peluqueroService;
-        this.horario = horario;
+        this.negocio = negocio;
         this.clock = clock;
     }
 
@@ -128,11 +128,11 @@ public class AsistenteHerramientas {
             fecha de hoy. Usa el 'hoy' que devuelve esta herramienta para resolver
             expresiones como 'manana' o 'el jueves': no supongas la fecha actual.""")
     public Horario consultarHorario() {
-        List<String> cerrados = horario.getDiasCerrados().stream()
+        List<String> cerrados = negocio.diasCerrados().stream()
                 .sorted()
                 .map(this::nombreDia)
                 .toList();
-        return new Horario(horario.getApertura().toString(), horario.getCierre().toString(),
+        return new Horario(negocio.apertura().toString(), negocio.cierre().toString(),
                 cerrados, LocalDate.now(clock).toString());
     }
 

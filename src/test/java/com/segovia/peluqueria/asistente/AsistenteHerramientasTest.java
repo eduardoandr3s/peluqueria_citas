@@ -2,7 +2,7 @@ package com.segovia.peluqueria.asistente;
 
 import com.segovia.peluqueria.calendario.dto.DiaCerradoDTO;
 import com.segovia.peluqueria.cita.CitaService;
-import com.segovia.peluqueria.cita.HorarioProperties;
+import com.segovia.peluqueria.negocio.NegocioService;
 import com.segovia.peluqueria.peluquero.PeluqueroService;
 import com.segovia.peluqueria.peluquero.dto.PeluqueroResponseDTO;
 import com.segovia.peluqueria.servicio.ServicioService;
@@ -34,7 +34,7 @@ class AsistenteHerramientasTest {
     private ServicioService servicioService;
     private CitaService citaService;
     private PeluqueroService peluqueroService;
-    private HorarioProperties horario;
+    private NegocioService negocio;
     private AsistenteHerramientas herramientas;
 
     @BeforeEach
@@ -42,9 +42,12 @@ class AsistenteHerramientasTest {
         servicioService = mock(ServicioService.class);
         citaService = mock(CitaService.class);
         peluqueroService = mock(PeluqueroService.class);
-        horario = new HorarioProperties();
+        negocio = mock(NegocioService.class);
+        when(negocio.apertura()).thenReturn(LocalTime.of(9, 0));
+        when(negocio.cierre()).thenReturn(LocalTime.of(20, 0));
+        when(negocio.diasCerrados()).thenReturn(EnumSet.of(DayOfWeek.SUNDAY));
         herramientas = new AsistenteHerramientas(
-                servicioService, citaService, peluqueroService, horario, RELOJ);
+                servicioService, citaService, peluqueroService, negocio, RELOJ);
     }
 
     private ServicioResponseDTO servicio() {
@@ -187,9 +190,9 @@ class AsistenteHerramientasTest {
 
     @Test
     void consultarHorario_reflejaLaConfiguracionYNoValoresFijos() {
-        horario.setApertura(LocalTime.of(10, 30));
-        horario.setCierre(LocalTime.of(21, 0));
-        horario.setDiasCerrados(EnumSet.of(DayOfWeek.SUNDAY, DayOfWeek.MONDAY));
+        when(negocio.apertura()).thenReturn(LocalTime.of(10, 30));
+        when(negocio.cierre()).thenReturn(LocalTime.of(21, 0));
+        when(negocio.diasCerrados()).thenReturn(EnumSet.of(DayOfWeek.SUNDAY, DayOfWeek.MONDAY));
 
         AsistenteHerramientas.Horario resultado = herramientas.consultarHorario();
 

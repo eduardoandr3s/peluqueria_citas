@@ -10,6 +10,7 @@ import com.segovia.peluqueria.exception.ConflictoHorarioException;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import com.segovia.peluqueria.modulo.Modulo;
 import com.segovia.peluqueria.modulo.ModuloService;
+import com.segovia.peluqueria.negocio.NegocioService;
 import com.segovia.peluqueria.permiso.Permiso;
 import com.segovia.peluqueria.permiso.PermisoService;
 import com.segovia.peluqueria.notificacion.evento.CitaAgendadaEvent;
@@ -63,7 +64,7 @@ public class CitaService {
     private final PeluqueroRepository peluqueroRepository;
     private final PeluqueroService peluqueroService;
     private final PagoRepository pagoRepository;
-    private final HorarioProperties horario;
+    private final NegocioService negocio;
     private final CalendarioService calendario;
     private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
@@ -76,7 +77,7 @@ public class CitaService {
                        PeluqueroRepository peluqueroRepository,
                        PeluqueroService peluqueroService,
                        PagoRepository pagoRepository,
-                       HorarioProperties horario,
+                       NegocioService negocio,
                        CalendarioService calendario,
                        ApplicationEventPublisher eventPublisher,
                        Clock clock,
@@ -88,7 +89,7 @@ public class CitaService {
         this.peluqueroRepository = peluqueroRepository;
         this.peluqueroService = peluqueroService;
         this.pagoRepository = pagoRepository;
-        this.horario = horario;
+        this.negocio = negocio;
         this.calendario = calendario;
         this.eventPublisher = eventPublisher;
         this.clock = clock;
@@ -160,9 +161,9 @@ public class CitaService {
         LocalDateTime ahora = LocalDateTime.now(clock);
         List<String> slotsLibres = new ArrayList<>();
 
-        LocalTime inicio = horario.getApertura();
+        LocalTime inicio = negocio.apertura();
         // El último inicio válido es aquel cuya cita aún termina a la hora de cierre o antes.
-        while (!inicio.plusMinutes(duracion).isAfter(horario.getCierre())) {
+        while (!inicio.plusMinutes(duracion).isAfter(negocio.cierre())) {
             LocalDateTime inicioSlot = fecha.atTime(inicio);
             LocalDateTime finSlot = inicioSlot.plusMinutes(duracion);
 
@@ -572,12 +573,12 @@ public class CitaService {
             throw new IllegalArgumentException("La peluqueria no abre el " + inicio.toLocalDate() + ": " + motivoCierre + ".");
         }
 
-        if (horaInicio.isBefore(horario.getApertura())) {
-            throw new IllegalArgumentException("La cita no puede ser antes de las " + horario.getApertura() + ".");
+        if (horaInicio.isBefore(negocio.apertura())) {
+            throw new IllegalArgumentException("La cita no puede ser antes de las " + negocio.apertura() + ".");
         }
 
-        if (horaFin.isAfter(horario.getCierre())) {
-            throw new IllegalArgumentException("La cita (incluyendo la duracion del servicio) no puede terminar despues de las " + horario.getCierre() + ".");
+        if (horaFin.isAfter(negocio.cierre())) {
+            throw new IllegalArgumentException("La cita (incluyendo la duracion del servicio) no puede terminar despues de las " + negocio.cierre() + ".");
         }
     }
 

@@ -23,6 +23,7 @@ import com.segovia.peluqueria.servicio.Servicio;
 import com.segovia.peluqueria.servicio.ServicioRepository;
 import com.segovia.peluqueria.modulo.Modulo;
 import com.segovia.peluqueria.modulo.ModuloService;
+import com.segovia.peluqueria.negocio.NegocioService;
 import com.segovia.peluqueria.permiso.Permiso;
 import com.segovia.peluqueria.permiso.PermisoService;
 import com.segovia.peluqueria.usuario.Rol;
@@ -44,8 +45,10 @@ import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.temporal.TemporalAdjusters;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -95,18 +98,17 @@ class CitaServiceTest {
         when(diaBloqueadoRepository.existsByFecha(any())).thenReturn(false);
         when(diaBloqueadoRepository.findByFecha(any())).thenReturn(Optional.empty());
         when(diaBloqueadoRepository.findByFechaBetweenOrderByFecha(any(), any())).thenReturn(List.of());
-        // HorarioProperties con sus valores por defecto: 09:00 - 20:00, domingo cerrado.
+        NegocioService negocio = negocioPorDefecto();
         // Clock del sistema para que "ahora" coincida con los LocalDateTime.now() de los helpers.
-        HorarioProperties horario = new HorarioProperties();
         Clock clock = Clock.systemDefaultZone();
         // CalendarioService real (no mock) sobre el repo mockeado: la regla del dia de la
         // semana se calcula de verdad y solo hay que stubbear los bloqueos puntuales.
-        CalendarioService calendario = new CalendarioService(diaBloqueadoRepository, citaRepository, horario, clock);
+        CalendarioService calendario = new CalendarioService(diaBloqueadoRepository, citaRepository, negocio, clock);
         permisoService = mock(PermisoService.class);
         // Por defecto los permisos configurables estan concedidos: aqui se prueban las
         // reglas de la cita, no la matriz. Los tests del permiso lo stubbean al reves.
         when(permisoService.tienePermiso(any(), any())).thenReturn(true);
-        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository, peluqueroRepository, peluqueroService, pagoRepository, horario, calendario, eventPublisher, clock, permisoService, moduloService);
+        citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository, peluqueroRepository, peluqueroService, pagoRepository, negocio, calendario, eventPublisher, clock, permisoService, moduloService);
 
         // Por defecto, el usuario autenticado es un ADMIN (acceso total).
         Usuario admin = new Usuario();
@@ -115,6 +117,19 @@ class CitaServiceTest {
         admin.setRol(Rol.ADMIN);
         admin.setActivo(true);
         when(usuarioRepository.findByEmail(EMAIL_ADMIN)).thenReturn(Optional.of(admin));
+    }
+
+    /**
+     * El horario del negocio tal y como lo siembra la V17: 09:00 - 20:00 y domingo cerrado.
+     * Es el mismo que tenian las properties que habia antes, asi que los tests de horas y
+     * de dias siguen probando lo de siempre.
+     */
+    private NegocioService negocioPorDefecto() {
+        NegocioService negocio = mock(NegocioService.class);
+        when(negocio.apertura()).thenReturn(LocalTime.of(9, 0));
+        when(negocio.cierre()).thenReturn(LocalTime.of(20, 0));
+        when(negocio.diasCerrados()).thenReturn(EnumSet.of(DayOfWeek.SUNDAY));
+        return negocio;
     }
 
     private Usuario crearUsuarioActivo() {
@@ -253,10 +268,10 @@ class CitaServiceTest {
         // aunque 14:00 sea "posterior" a las 13:37 UTC. Guarda contra el bug de zona horaria
         // (host en UTC dejaba agendar en el pasado local).
         Clock relojMadrid = Clock.fixed(Instant.parse("2026-07-20T13:37:00Z"), ZoneId.of("Europe/Madrid"));
-        HorarioProperties horario = new HorarioProperties();
-        CalendarioService calendario = new CalendarioService(diaBloqueadoRepository, citaRepository, horario, relojMadrid);
+        NegocioService negocio = negocioPorDefecto();
+        CalendarioService calendario = new CalendarioService(diaBloqueadoRepository, citaRepository, negocio, relojMadrid);
         citaService = new CitaService(citaRepository, usuarioRepository, servicioRepository,
-                peluqueroRepository, peluqueroService, pagoRepository, horario, calendario, eventPublisher, relojMadrid, permisoService, moduloService);
+                peluqueroRepository, peluqueroService, pagoRepository, negocio, calendario, eventPublisher, relojMadrid, permisoService, moduloService);
 
         CitaRequestDTO request = crearRequestValido();
         request.setFechaHora(LocalDateTime.of(2026, 7, 20, 14, 0));

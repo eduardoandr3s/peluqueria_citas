@@ -5,7 +5,7 @@ import com.segovia.peluqueria.calendario.dto.DiaBloqueadoResponseDTO;
 import com.segovia.peluqueria.calendario.dto.DiaCerradoDTO;
 import com.segovia.peluqueria.cita.CitaRepository;
 import com.segovia.peluqueria.cita.EstadoCita;
-import com.segovia.peluqueria.cita.HorarioProperties;
+import com.segovia.peluqueria.negocio.NegocioService;
 import com.segovia.peluqueria.exception.ConflictoHorarioException;
 import com.segovia.peluqueria.exception.ResourceNotFoundException;
 import org.springframework.stereotype.Service;
@@ -24,7 +24,7 @@ import java.util.stream.Collectors;
 
 /**
  * Días en los que la peluquería no abre. Unifica los dos orígenes de cierre:
- * los días de la semana fijos (domingo, vía {@link HorarioProperties}) y los días
+ * los días de la semana fijos (domingo, vía {@link NegocioService}) y los días
  * bloqueados a mano por el administrador (festivos, cierres puntuales).
  */
 @Service
@@ -37,16 +37,16 @@ public class CalendarioService {
 
     private final DiaBloqueadoRepository diaBloqueadoRepository;
     private final CitaRepository citaRepository;
-    private final HorarioProperties horario;
+    private final NegocioService negocio;
     private final Clock clock;
 
     public CalendarioService(DiaBloqueadoRepository diaBloqueadoRepository,
                              CitaRepository citaRepository,
-                             HorarioProperties horario,
+                             NegocioService negocio,
                              Clock clock) {
         this.diaBloqueadoRepository = diaBloqueadoRepository;
         this.citaRepository = citaRepository;
-        this.horario = horario;
+        this.negocio = negocio;
         this.clock = clock;
     }
 
@@ -133,7 +133,7 @@ public class CalendarioService {
     }
 
     private boolean esDiaSemanaCerrado(LocalDate fecha) {
-        return horario.getDiasCerrados().contains(fecha.getDayOfWeek());
+        return negocio.diasCerrados().contains(fecha.getDayOfWeek());
     }
 
     private String motivoDiaSemana(DayOfWeek dia) {

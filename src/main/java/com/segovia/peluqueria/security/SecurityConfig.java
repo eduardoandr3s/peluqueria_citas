@@ -158,6 +158,13 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/modulos").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/modulos").hasRole("ADMIN")
 
+                        // La ficha del negocio (nombre, contacto, logo, horario) es PUBLICA por
+                        // lo mismo que los modulos activos: las dos apps la pintan antes del
+                        // login y no hay nada privado dentro. Editarla es de ADMIN, y la regla
+                        // del GET va ANTES para que la del PUT no se la trague.
+                        .requestMatchers(HttpMethod.GET, "/api/negocio").permitAll()
+                        .requestMatchers(HttpMethod.PUT, "/api/negocio").hasRole("ADMIN")
+
                         // La matriz de permisos la configura el ADMIN. /mios es de cualquier
                         // autenticado: son sus propios permisos, y el frontend los pide al entrar
                         // para no pintar botones que acabarian en un 403. Va ANTES de las dos
