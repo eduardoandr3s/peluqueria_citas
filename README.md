@@ -101,6 +101,8 @@ Each business module follows the same layout: JPA entity, controller, service, r
 
 **540 tests** run in CI on every push (GitHub Actions).
 
+> **How to run them** — the commands and the conditions each kind of test needs live in [`AGENTS.md`](AGENTS.md), which is the single source for that. This section keeps the counters and what each test covers.
+
 ### Unit tests (452)
 
 They cover all business logic without Spring context or database (a few seconds):
@@ -138,11 +140,6 @@ They cover all business logic without Spring context or database (a few seconds)
 | EstadisticasServiceTest | 3 | Aggregations, revenue breakdown, refund exclusion |
 | PeluqueriaApplicationTests | 1 | Spring context loads (only runs when `DB_USERNAME` is set) |
 
-```bash
-# Unit tests only (no Docker needed)
-./mvnw test -Dtest='!*IntegrationTest'
-```
-
 ### Integration tests (88, Testcontainers)
 
 They boot the full application against a **real PostgreSQL** started in Docker (`@ServiceConnection`), with Flyway migrations applied:
@@ -163,11 +160,6 @@ They boot the full application against a **real PostgreSQL** started in Docker (
 * **AuthIntegrationTest** (1) — full register/login flow over HTTP.
 
 > Tests never book "tomorrow": a helper picks the **next Monday**, so a run on a Saturday cannot land on a closed day and fail for reasons unrelated to what is being tested.
-
-```bash
-# Full suite, integration tests included (requires Docker running)
-./mvnw test
-```
 
 ## API Endpoints
 

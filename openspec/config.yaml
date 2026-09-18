@@ -1,0 +1,71 @@
+schema: spec-driven
+
+context: |
+  Backend de un sistema de gestion para peluquerias: Spring Boot sobre Java 21, PostgreSQL con
+  migraciones Flyway, autenticacion JWT, pagos con Stripe, envio de correo y almacenamiento de
+  ficheros. El panel web y la app movil viven en un repositorio aparte; aqui solo hay API.
+
+  El codigo se organiza por DOMINIO, no por capa: cada paquete bajo com.segovia.peluqueria agrupa
+  entidad, repository, service, controller y dto. Al proponer algo nuevo, el sitio por defecto es un
+  dominio que ya existe; crear uno nuevo es una decision que hay que justificar.
+
+  Convenciones que NO hay que "limpiar" al tocar codigo:
+  - Constructor injection con campos final, sin @Autowired.
+  - DTOs Request y Response explicitos, con mapeo manual en los services. Nada de mappers
+    automaticos.
+  - Excepciones centralizadas en el manejador global del paquete exception.
+  - Soft delete donde ya existe; las citas se borran fisicamente.
+  - Lombok: en entidades JPA @Getter, @Setter, @NoArgsConstructor y @AllArgsConstructor, nunca
+    @Data. En los DTOs si se usa @Data.
+  - Se comenta el porque, no el que. Un comentario que explica por que una version o una anotacion
+    esta ahi no se borra para "limpiar".
+
+  La configuracion del negocio (nombre, contacto, marca y horario) vive en una tabla de una sola
+  fila, no en application.properties: se siembra por migracion y se edita desde el panel. Quien
+  necesita esos datos pregunta al service correspondiente, que cachea.
+
+  El producto se vende a varias peluquerias: hay modulos activables para apagar lo que una
+  peluqueria no usa. Toda funcionalidad nueva tiene que decir si es siempre-activa o va detras de un
+  modulo.
+
+  Como se arranca el proyecto y como se ejecutan los tests no se describe aqui. La unica fuente para
+  eso es AGENTS.md, en la raiz del repositorio.
+
+rules:
+  proposal:
+    - Escribir en espanol, sin tildes ni enies.
+    - Decir explicitamente si la funcionalidad va detras de un modulo activable o es siempre-activa.
+    - Mantenerlo autocontenido, sin referencias a documentos, rutas o planificacion que vivan fuera
+      del repositorio.
+  specs:
+    - Nombrar cada capacidad como el dominio al que corresponde, y reutilizar una que ya exista
+      antes de introducir un nombre parecido.
+    - Describir comportamiento observable de la API, no implementacion.
+    - Escribir en espanol, sin tildes ni enies.
+  design:
+    - Si el cambio toca el modelo de datos, decir que migracion Flyway nueva hace falta. Las
+      migraciones ya aplicadas no se reescriben.
+    - Si el cambio toca datos que se cachean, decir como se invalida la cache.
+    - Recoger las alternativas descartadas y por que, no solo la decision elegida.
+    - Escribir en espanol, sin tildes ni enies.
+  tasks:
+    - Todo cambio de comportamiento lleva su test.
+    - Incluir una tarea de actualizar los contadores de tests de los dos README, que estan escritos
+      a mano y no se generan solos.
+    - Ningun test agenda para "manana" ni para dentro de N dias. Se usa el helper que busca el
+      proximo dia abierto, para que una ejecucion en fin de semana no falle por el calendario.
+    - Ordenar las tareas por dependencia y decir en cada una como se verifica que esta hecha.
+    - Escribir en espanol, sin tildes ni enies.
+
+operations:
+  apply:
+    guidance:
+      - No commitear por cuenta propia. Preparar el cambio y entregar los ficheros y el mensaje
+        propuesto.
+      - Mensajes de commit en espanol, conventional commits, sin tildes ni enies, y nunca con
+        Co-Authored-By.
+      - Consultar AGENTS.md para saber que comando de tests corresponde a la plataforma actual.
+      - Si aparece un problema colateral, se senala pero no se arregla sin preguntar.
+  archive:
+    guidance:
+      - Confirmar que los contadores de los README quedaron actualizados antes de archivar.

@@ -101,6 +101,8 @@ Todos los módulos de negocio siguen el mismo esquema: entidad JPA, controller, 
 
 **540 tests** se ejecutan en CI en cada push (GitHub Actions).
 
+> **Cómo se ejecutan** — los comandos y las condiciones que necesita cada tipo de test están en [`AGENTS.md`](AGENTS.md), que es la única fuente para eso. Esta sección se queda con los contadores y con lo que cubre cada test.
+
 ### Tests unitarios (452)
 
 Cubren toda la lógica de negocio sin Spring context ni base de datos (pocos segundos):
@@ -138,11 +140,6 @@ Cubren toda la lógica de negocio sin Spring context ni base de datos (pocos seg
 | EstadisticasServiceTest | 3 | Agregaciones, desglose de ingresos, exclusión de reembolsos |
 | PeluqueriaApplicationTests | 1 | El contexto de Spring carga (solo se ejecuta si `DB_USERNAME` está definida) |
 
-```bash
-# Solo tests unitarios (no requiere Docker)
-./mvnw test -Dtest='!*IntegrationTest'
-```
-
 ### Tests de integración (88, Testcontainers)
 
 Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Docker (`@ServiceConnection`), con las migraciones Flyway aplicadas:
@@ -163,11 +160,6 @@ Arrancan la aplicación completa contra un **PostgreSQL real** levantado en Dock
 * **AuthIntegrationTest** (1) — flujo completo de registro/login por HTTP.
 
 > Ningún test agenda «mañana»: un helper busca el **próximo lunes**, así que una ejecución en sábado no puede caer en un día cerrado y fallar por algo que no es lo que se está probando.
-
-```bash
-# Suite completa, tests de integración incluidos (requiere Docker corriendo)
-./mvnw test
-```
 
 ## Endpoints de la API
 
