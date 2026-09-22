@@ -3,6 +3,7 @@ package com.segovia.peluqueria.integracion;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -176,7 +177,42 @@ class PermisoIntegrationTest extends AbstractIntegrationTest {
         assertEquals(HttpStatus.BAD_REQUEST, resp.getStatusCode());
     }
 
+    @Test
+    void unPeluqueroSinPermisosLeeElCatalogo() {
+        // La app le da al personal una pestana con el catalogo, y lo pide con su token. Con la
+        // matriz entera apagada tiene que seguir leyendolo: no es un permiso, es escaparate.
+        ResponseEntity<List<Map<String, Object>>> resp = catalogo(tokenLaura);
+
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        assertTrue(ids(resp).contains(servCorte));
+    }
+
+    @Test
+    void unServicioDadoDeBajaNoLeApareceAlPeluquero() {
+        Integer servTinte = jdbcTemplate.queryForObject(
+                "INSERT INTO servicios (nombre, precio, duracion, activo) "
+                        + "VALUES ('Tinte PERM', 40, 60, true) RETURNING id_servicio", Integer.class);
+
+        // Por el endpoint y no con un UPDATE: la baja es la que haria un administrador.
+        ResponseEntity<Void> baja = rest.exchange(url("/api/servicios/" + servTinte), HttpMethod.DELETE,
+                new HttpEntity<>(cabecera(tokenAdmin)), Void.class);
+        assertEquals(HttpStatus.NO_CONTENT, baja.getStatusCode());
+
+        List<Integer> ids = ids(catalogo(tokenLaura));
+        assertFalse(ids.contains(servTinte));
+        assertTrue(ids.contains(servCorte));
+    }
+
     // ---- Helpers ----
+
+    private ResponseEntity<List<Map<String, Object>>> catalogo(String token) {
+        return rest.exchange(url("/api/servicios"), HttpMethod.GET, new HttpEntity<>(cabecera(token)),
+                new ParameterizedTypeReference<>() {});
+    }
+
+    private List<Integer> ids(ResponseEntity<List<Map<String, Object>>> resp) {
+        return resp.getBody().stream().map(s -> (Integer) s.get("idServicio")).toList();
+    }
 
     private void encender(String clave) {
         assertEquals(HttpStatus.OK, escribir(clave, true).getStatusCode());
