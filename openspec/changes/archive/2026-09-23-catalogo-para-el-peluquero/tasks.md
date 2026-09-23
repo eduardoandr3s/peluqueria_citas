@@ -30,7 +30,7 @@ Las rutas `mobile/...` y los README del frontend son del repositorio del fronten
 
 - [x] 5.1 Ejecutar la suite completa del backend (`./mvnw test`) y anotar el total. Se verifica con 0 fallos.
 - [x] 5.2 Ejecutar las dos suites del frontend (`npx ng test --watch=false` y `npm test -w @peluqueria/mobile -- --watch=false`) y la build del movil, y anotar los totales. Se verifica con 0 fallos y la build sin errores.
-- [ ] 5.3 Comprobar a mano en el navegador, con una sesion de PELUQUERO, que la pestana «Servicios» aparece, se marca al entrar, carga el catalogo sin «Agendar» y la recarga funciona. Con una sesion de ADMIN, comprobar que su barra no ha cambiado. Hace falta el backend en marcha. Si no hay credenciales disponibles, se deja indicado para que lo haga Eduardo. Se verifica con lo observado anotado en la entrega.
+- [x] 5.3 Comprobar a mano en el navegador, con una sesion de PELUQUERO, que la pestana «Servicios» aparece, se marca al entrar, carga el catalogo sin «Agendar» y la recarga funciona. Con una sesion de ADMIN, comprobar que su barra no ha cambiado. Hace falta el backend en marcha. Si no hay credenciales disponibles, se deja indicado para que lo haga Eduardo. Se verifica con lo observado anotado en la entrega. Hecha a mano por Eduardo el 2026-09-23.
 
 ## 6. Documentacion
 
